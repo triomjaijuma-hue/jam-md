@@ -1,11 +1,11 @@
 FROM node:22-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ ffmpeg wget curl git ca-certificates \
+    python3 make g++ ffmpeg wget curl git ca-certificates unzip \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Allow git to clone GitHub deps over HTTPS without SSH keys or cert issues
+# Allow git to clone GitHub deps via HTTPS (no SSH keys in Docker)
 RUN git config --global url."https://github.com/".insteadOf "git+ssh://git@github.com/" && \
     git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"    && \
     git config --global http.sslVerify false
@@ -21,4 +21,4 @@ RUN mkdir -p data temp session
 
 EXPOSE 5000
 
-CMD ["node", "index.js"]
+CMD ["npm", "run", "start:optimized"]

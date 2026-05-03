@@ -5,7 +5,7 @@
     "dockerfilePath": "lib/Dockerfile"
   },
   "deploy": {
-    "startCommand": "node index.js",
+    "startCommand": "npm run start:optimized",
     "restartPolicyType": "ALWAYS"
   }
 }
