@@ -1,0 +1,10 @@
+node_modules
+npm-debug.log
+session
+temp
+data
+.git
+.env
+*.md
+test/
+push_github.mjs
