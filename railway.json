@@ -5,7 +5,7 @@
     "dockerfilePath": "lib/Dockerfile"
   },
   "deploy": {
-    "startCommand": "npm run start:optimized",
+    "startCommand": "node --max-old-space-size=512 --optimize-for-size --expose-gc index.js",
     "restartPolicyType": "ALWAYS"
   }
 }
