@@ -115,7 +115,6 @@ export default {
             const contextInfo = {
                 forwardingScore: 1,
                 isForwarded: true,
-                }
             };
             const messageOptions = thumbnail
                 ? { image: thumbnail, caption: menuText, contextInfo }

@@ -111,7 +111,6 @@ export function startSchedulerEngine(sock) {
                             contextInfo: {
                                 forwardingScore: 1,
                                 isForwarded: true,
-                                }
                             }
                         });
                         console.log(`[SCHEDULE] ✅ Sent message ID:${item.id} to ${item.chatId}`);

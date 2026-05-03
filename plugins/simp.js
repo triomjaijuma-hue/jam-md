@@ -35,7 +35,6 @@ export default {
                 contextInfo: {
                     forwardingScore: 1,
                     isForwarded: true,
-                    }
                 }
             }, { quoted: message });
         }
@@ -46,7 +45,6 @@ export default {
                 contextInfo: {
                     forwardingScore: 1,
                     isForwarded: true,
-                    }
                 }
             }, { quoted: message });
         }

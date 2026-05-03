@@ -44,7 +44,6 @@ export default {
                     contextInfo: {
                         forwardingScore: 1,
                         isForwarded: true,
-                        }
                     }
                 });
                 sent++;

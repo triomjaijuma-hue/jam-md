@@ -26,7 +26,6 @@ async function handleJoinEvent(sock, id, participants) {
         contextInfo: {
             forwardingScore: 1,
             isForwarded: true,
-            }
         }
     };
     for (const participant of participants) {

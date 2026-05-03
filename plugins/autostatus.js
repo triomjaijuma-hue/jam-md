@@ -21,7 +21,6 @@ const channelInfo = {
     contextInfo: {
         forwardingScore: 1,
         isForwarded: true,
-        }
     }
 };
 async function readConfig() {

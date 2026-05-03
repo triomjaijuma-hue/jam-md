@@ -10,7 +10,6 @@ export default {
         const forwardInfo = {
             forwardingScore: 1,
             isForwarded: true,
-            }
         };
         const query = args.join('').trim();
         if (!query) {
