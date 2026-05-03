@@ -51,7 +51,6 @@ export async function handleAutoReply(sock, chatId, message, userMessage) {
                     contextInfo: {
                         forwardingScore: 1,
                         isForwarded: true,
-                        }
                     }
                 }, { quoted: message });
                 return true;
