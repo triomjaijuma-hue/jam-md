@@ -33,7 +33,7 @@ setInterval(() => {
 }, 60000);
 setInterval(() => {
     const used = process.memoryUsage().rss / 1024 / 1024;
-    if (used > 400) {
+    if (used > 900) {
         printLog('warning', 'RAM too high (>400MB), restarting bot...');
         process.exit(1);
     }
