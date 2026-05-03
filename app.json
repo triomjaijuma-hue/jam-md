@@ -1,0 +1,86 @@
+{
+  "name": "jam-md",
+  "description": "High performance multi-device WhatsApp bot",
+  "keywords": ["whatsapp-bot", "baileys", "jam-md"],
+  "repository": "https://github.com/JAM-MD/jam-md",
+  "stack": "container",
+  "env": {
+    "SESSION_ID": {
+      "description": "Your session ID (get it by running the bot locally first)",
+      "required": true,
+      "value": ""
+    },
+    "OWNER_NUMBER": {
+      "description": "Your WhatsApp number with country code (e.g. 256765309986)",
+      "required": true,
+      "value": "256765309986"
+    },
+    "MONGO_URL": {
+      "description": "MongoDB URL for persistent storage (recommended)",
+      "required": false,
+      "value": ""
+    },
+    "POSTGRES_URL": {
+      "description": "PostgreSQL URL for persistent storage",
+      "required": false,
+      "value": ""
+    },
+    "MYSQL_URL": {
+      "description": "MySQL URL for persistent storage",
+      "required": false,
+      "value": ""
+    },
+    "BOT_NAME": {
+      "description": "Your bot name",
+      "required": false,
+      "value": "JAM-MD"
+    },
+    "BOT_OWNER": {
+      "description": "Owner display name",
+      "required": false,
+      "value": "Jaiton fangs"
+    },
+    "PREFIXES": {
+      "description": "Command prefixes separated by comma (e.g. .,!,/)",
+      "required": false,
+      "value": "."
+    },
+    "PACKNAME": {
+      "description": "Sticker pack name",
+      "required": false,
+      "value": "JAM-MD"
+    },
+    "COMMAND_MODE": {
+      "description": "Bot mode: public or private",
+      "required": false,
+      "value": "public"
+    },
+    "TIMEZONE": {
+      "description": "Your timezone",
+      "required": false,
+      "value": "Africa/Kampala"
+    },
+    "UPDATE_URL": {
+      "description": "ZIP URL of your JAM-MD GitHub repo for .update command (e.g. https://github.com/YOUR_USER/jam-md/archive/refs/heads/main.zip)",
+      "required": false,
+      "value": ""
+    },
+    "REMOVEBG_KEY": {
+      "description": "Remove.bg API key for background removal",
+      "required": false,
+      "value": ""
+    }
+  },
+  "buildpacks": [
+    { "url": "heroku/nodejs" },
+    { "url": "https://github.com/DuckyTeam/heroku-buildpack-imagemagick.git" },
+    { "url": "https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest" },
+    { "url": "https://github.com/clhuang/heroku-buildpack-webp-binaries.git" }
+  ],
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  }
+}
