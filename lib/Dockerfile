@@ -21,4 +21,4 @@ RUN mkdir -p data temp session
 
 EXPOSE 5000
 
-CMD ["npm", "run", "start:optimized"]
+CMD ["node", "--max-old-space-size=512", "--optimize-for-size", "--expose-gc", "index.js"]
