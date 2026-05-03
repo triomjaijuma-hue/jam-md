@@ -40,7 +40,6 @@ export default {
                 contextInfo: {
                     forwardingScore: 999,
                     isForwarded: true,
-                    }
                 }
             }, { quoted: message });
         }
