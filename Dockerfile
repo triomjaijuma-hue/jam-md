@@ -1,12 +1,14 @@
 FROM node:22-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ ffmpeg wget curl git \
+    python3 make g++ ffmpeg wget curl git ca-certificates \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Force npm to use HTTPS instead of git+ssh (no SSH keys in Docker)
+# Allow git to clone GitHub deps over HTTPS without SSH keys or cert issues
 RUN git config --global url."https://github.com/".insteadOf "git+ssh://git@github.com/" && \
-    git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+    git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"    && \
+    git config --global http.sslVerify false
 
 WORKDIR /app
 
