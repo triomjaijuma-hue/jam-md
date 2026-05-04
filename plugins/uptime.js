@@ -12,6 +12,7 @@
  *                 Unauthorized copying or distribution is prohibited.       *
  *                                                                           *
  *****************************************************************************/
+import { ugaFormat } from '../lib/ugaTime.js';
 export default {
     command: 'uptime',
     aliases: ['runtime'],
@@ -38,7 +39,7 @@ export default {
             parts.push(`${sec}s`);
             return parts.join(' ');
         };
-        const startedAt = new Date(Date.now() - uptimeMs).toLocaleString();
+        const startedAt = ugaFormat(Date.now() - uptimeMs) + ' (EAT)';
         const ramMb = (process.memoryUsage().rss / 1024 / 1024).toFixed(1);
         const commandCount = commandHandler.commands.size;
         const text = `🤖 *JAM-MD STATUS*\n\n` +
