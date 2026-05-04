@@ -60,8 +60,11 @@ export default {
             _mathListenerRegistered = true;
             sock.ev.on('messages.upsert', async (upsert) => {
                 const m = upsert.messages[0];
-                if (!m?.message || m.key.fromMe) return;
+                if (!m?.message) return;
                 const chat = m.key.remoteJid;
+                const isGroupMsg = chat.endsWith('@g.us');
+                // In groups skip bot's own messages; in DMs/self-chat allow them
+                if (m.key.fromMe && isGroupMsg) return;
                 if (!mathGames[chat]) return;
                 const body = (m.message.conversation || m.message.extendedTextMessage?.text || '').trim();
                 if (!/^-?[0-9]+(\.[0-9]+)?$/.test(body)) return;
