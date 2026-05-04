@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 import { smsg } from './lib/myfunc.js';
+import { ugaNow } from './lib/ugaTime.js';
 import { compileAll } from './lib/compile.js';
 import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers, jidDecode, jidNormalizedUser, makeCacheableSignalKeyStore, delay } from '@whiskeysockets/baileys';
 import NodeCache from 'node-cache';
@@ -447,7 +448,7 @@ async function startJamBot() {
                     const botNumber = `${JamBot.user.id.split(':')[0] }@s.whatsapp.net`;
                     const ghostStatus = (ghostMode && ghostMode.enabled) ? '\n👻 Stealth Mode: ACTIVE' : '';
                     await JamBot.sendMessage(botNumber, {
-                        text: `🤖 Bot Connected Successfully!\n\n⏰ Time: ${new Date().toLocaleString()}\n✅ Status: Online and Ready!${ghostStatus}\n\n`
+                        text: `🤖 Bot Connected Successfully!\n\n⏰ Time: ${ugaNow()} (EAT)\n✅ Status: Online and Ready!${ghostStatus}\n\n`
                     });
                 }
                 catch (error) {
