@@ -1,80 +1,72 @@
-import axios from 'axios';
 export default {
     command: 'tiktok',
     aliases: ['tt', 'ttdl', 'tiktokdl'],
     category: 'download',
-    description: 'Download TikTok video without watermark (HD if available)',
+    description: 'Download TikTok video without watermark',
     usage: '.tiktok <TikTok URL>',
     async handler(sock, message, args, context) {
-        const { chatId, rawText } = context;
-        const prefix = rawText.match(/^[.!#]/)?.[0] || '.';
-        const commandPart = rawText.slice(prefix.length).trim();
-        const parts = commandPart.split(/\s+/);
-        const url = parts.slice(1).join(' ').trim();
+        const { chatId } = context;
+        const url = args.join(' ').trim();
         if (!url) {
-            return await sock.sendMessage(chatId, {
-                text: '🎵 *TikTok Downloader*\n\nPlease provide a TikTok URL.\nExample:\n.tiktok https://vm.tiktok.com/XXXX'
+            return sock.sendMessage(chatId, {
+                text: '🎵 *TikTok Downloader*\n\nProvide a TikTok URL.\nExample: _.tiktok https://vm.tiktok.com/XXXX_'
             }, { quoted: message });
         }
-        try {
-            await sock.sendMessage(chatId, {
-                text: '⏳ Downloading TikTok video...'
+        if (!url.match(/tiktok\.com|vm\.tiktok|vt\.tiktok/i)) {
+            return sock.sendMessage(chatId, {
+                text: '❌ That doesn\'t look like a TikTok link.\nExample: _.tiktok https://vm.tiktok.com/XXXX_'
             }, { quoted: message });
-            const apiUrl = `https://discardapi.onrender.com/api/dl/tiktok?apikey=guru&url=${encodeURIComponent(url)}`;
-            const { data } = await axios.get(apiUrl, {
-                timeout: 45000,
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
+        }
+        await sock.sendMessage(chatId, { text: '⏳ Downloading TikTok video...' }, { quoted: message });
+        try {
+            const apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(url)}&hd=1`;
+            const res = await fetch(apiUrl, {
+                headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.tikwm.com/' },
+                signal: AbortSignal.timeout(30000)
             });
-            if (!data?.status || !data?.result) {
-                throw new Error('Invalid API response');
+            const json = await res.json();
+            if (!json || json.code !== 0 || !json.data) {
+                throw new Error(json?.msg || 'Invalid API response');
             }
-            const res = data.result;
-            const hd = res.data.find((v) => v.type === 'nowatermark_hd');
-            const noWm = res.data.find((v) => v.type === 'nowatermark');
-            const videoUrl = hd?.url || noWm?.url;
-            if (!videoUrl) {
-                throw new Error('No downloadable video found');
-            }
+            const d = json.data;
+            const videoUrl = d.hdplay || d.play;
+            if (!videoUrl) throw new Error('No downloadable video found');
+
+            const likeCount = Number(d.digg_count || 0);
+            const likes = likeCount >= 1000000
+                ? (likeCount / 1000000).toFixed(1) + 'M'
+                : likeCount >= 1000 ? (likeCount / 1000).toFixed(1) + 'K'
+                : String(likeCount);
+
             const caption = `🎵 *TikTok Downloader*
 ━━━━━━━━━━━━━━━━━━━
-👤 *User:* ${res.author.nickname}
-🆔 *Username:* ${res.author.fullname}
-🌍 *Region:* ${res.region}
-⏱️ *Duration:* ${res.duration}
+👤 *Creator:* ${d.author?.nickname || 'Unknown'}
+🆔 *Username:* @${d.author?.unique_id || ''}
+⏱️ *Duration:* ${d.duration || '?'}s
 
-❤️ *Likes:* ${res.stats.likes}
-💬 *Comments:* ${res.stats.comment}
-🔁 *Shares:* ${res.stats.share}
-👀 *Views:* ${res.stats.views}
+❤️ *Likes:* ${likes}
+💬 *Comments:* ${d.comment_count || 0}
+🔁 *Shares:* ${d.share_count || 0}
+👀 *Views:* ${d.play_count || 0}
 
-🎧 *Sound:* ${res.music_info.title}
-📅 *Posted:* ${res.taken_at}
+🎧 *Sound:* ${d.music_info?.title || 'Original'}
 
 📝 *Caption:*
-${res.title || 'No caption'}
+${d.title || 'No caption'}
 
-✨ *Quality:* ${hd ? 'HD No Watermark' : 'No Watermark'}
+✨ *Quality:* ${d.hdplay ? 'HD No Watermark' : 'No Watermark'}
 ━━━━━━━━━━━━━━━━━━━`;
+
             await sock.sendMessage(chatId, {
                 video: { url: videoUrl },
                 mimetype: 'video/mp4',
                 caption
             }, { quoted: message });
-        }
-        catch (error) {
-            console.error('TikTok plugin error:', error);
-            if (error.code === 'ECONNABORTED') {
-                await sock.sendMessage(chatId, {
-                    text: '⏱️ Request timed out. Please try again later.'
-                }, { quoted: message });
-            }
-            else {
-                await sock.sendMessage(chatId, {
-                    text: `❌ Failed to download TikTok video.\nReason: ${error.message}`
-                }, { quoted: message });
-            }
+        } catch (err) {
+            const msg = err.name === 'TimeoutError'
+                ? '⏱️ Request timed out. Please try again.'
+                : `❌ Failed to download.\nReason: ${err.message}`;
+            await sock.sendMessage(chatId, { text: msg }, { quoted: message });
         }
     }
 };
