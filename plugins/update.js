@@ -94,14 +94,9 @@ function copyRecursive(src, dest, ignore = [], relative = '', outList = []) {
 }
 
 async function updateViaZip(zipOverride) {
-    const zipUrl = (zipOverride || config.updateZipUrl || process.env.UPDATE_URL || '').trim();
-    if (!zipUrl) {
-        throw new Error(
-            'No UPDATE_URL set.\n' +
-            'On Railway: go to Variables and set UPDATE_URL to your JAM-MD repo ZIP:\n' +
-            'https://github.com/YOUR_USER/jam-md/archive/refs/heads/main.zip'
-        );
-    }
+    // Auto-detect public repo ZIP URL — no UPDATE_URL variable needed
+    const AUTO_ZIP_URL = 'https://github.com/jumatjai-create/jam-md/archive/refs/heads/main.zip';
+    const zipUrl = (zipOverride || config.updateZipUrl || process.env.UPDATE_URL || AUTO_ZIP_URL).trim();
     const tmpDir = path.join(process.cwd(), 'temp');
     if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
     const zipPath = path.join(tmpDir, 'update.zip');
