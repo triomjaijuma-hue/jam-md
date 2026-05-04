@@ -1,13 +1,13 @@
 const mathGames = {};
-const pendingMathMode = {}; // tracks chats waiting for difficulty selection
+const pendingMathMode = {};
 const modes = {
-    noob: [-3, 3, -3, 3, '+-', 15000],
-    easy: [-10, 10, -10, 10, '*/+-', 20000],
-    normal: [-40, 40, -20, 20, '*/+-', 40000],
-    hard: [-100, 100, -70, 70, '*/+-', 60000],
-    extreme: [-999999, 999999, -999999, 999999, '*/', 99999],
-    impossible: [-99999999999, 99999999999, -99999999999, 999999999999, '*/', 30000],
-    impossible2: [-999999999999999, 999999999999999, -999, 999, '/', 30000],
+    noob:        [-3,              3,              -3,              3,              '+-',   15000],
+    easy:        [-10,             10,             -10,             10,             '*/+-', 20000],
+    normal:      [-40,             40,             -20,             20,             '*/+-', 40000],
+    hard:        [-100,            100,            -70,             70,             '*/+-', 60000],
+    extreme:     [-999999,         999999,         -999999,         999999,         '*/',   99999],
+    impossible:  [-99999999999,    99999999999,    -99999999999,    999999999999,   '*/',   30000],
+    impossible2: [-999999999999999,999999999999999,-999,            999,            '/',    30000],
 };
 const operators = {
     '+': '+',
@@ -20,7 +20,7 @@ export default {
     aliases: ['maths', 'ganit'],
     category: 'games',
     description: 'Solve math problems',
-    usage: '.math',
+    usage: '.math [difficulty]',
     initialized: false,
     async handler(sock, message, args, _context) {
         const { chatId, config } = _context;
@@ -30,7 +30,10 @@ export default {
         }
         const mode = args[0]?.toLowerCase();
         if (!mode || !(mode in modes)) {
-            pendingMathMode[chatId] = { ts: Date.now(), senderId: context.senderId || message.key.participant || message.key.remoteJid };
+            pendingMathMode[chatId] = {
+                ts: Date.now(),
+                senderId: _context.senderId || message.key.participant || message.key.remoteJid
+            };
             return sock.sendMessage(chatId, {
                 text: `🧮 *Available Difficulties:*\n\n${Object.keys(modes).join(' | ')}\n\n_Just type the difficulty name e.g. *noob* or *normal*_`
             }, { quoted: message });
@@ -53,12 +56,13 @@ export default {
             this.initialized = true;
             sock.ev.on('messages.upsert', async (upsert) => {
                 const m = upsert.messages[0];
-                if (!m.message || m.key.fromMe)
-                    return;
+                if (!m.message || m.key.fromMe) return;
                 const chat = m.key.remoteJid;
-                // Handle pending difficulty selection (user typed just the mode name)
+
+                // Handle pending difficulty selection
                 if (pendingMathMode[chat] && (Date.now() - pendingMathMode[chat].ts) < 120000) {
-                    const rawBody = (m.message.conversation || m.message.extendedTextMessage?.text || '').trim().toLowerCase().replace(/^\./, '');
+                    const rawBody = (m.message.conversation || m.message.extendedTextMessage?.text || '')
+                        .trim().toLowerCase().replace(/^\./, '');
                     if (rawBody in modes && !mathGames[chat]) {
                         delete pendingMathMode[chat];
                         const math = genMath(rawBody);
@@ -76,29 +80,28 @@ export default {
                         return;
                     }
                 }
-                if (!mathGames[chat])
-                    return;
-                const body = (m.message.conversation || m.message.extendedTextMessage?.text || "").trim();
-                if (!/^-?[0-9]+(\.[0-9]+)?$/.test(body))
-                    return;
+
+                if (!mathGames[chat]) return;
+                const body = (m.message.conversation || m.message.extendedTextMessage?.text || '').trim();
+                if (!/^-?[0-9]+(\.[0-9]+)?$/.test(body)) return;
+
                 const quoted = m.message.extendedTextMessage?.contextInfo?.quotedMessage;
-                const quotedText = quoted?.conversation || quoted?.extendedTextMessage?.text || "";
-                if (!/^▢ HOW MUCH IS IT/i.test(quotedText))
-                    return;
+                const quotedText = quoted?.conversation || quoted?.extendedTextMessage?.text || '';
+                if (!/^▢ HOW MUCH IS IT/i.test(quotedText)) return;
+
                 const game = mathGames[chat];
+                // Compare as strings — result is stored as string to avoid type mismatch
                 if (body === game.math.result) {
                     clearTimeout(game.timeout);
                     delete mathGames[chat];
                     await sock.sendMessage(chat, { text: `✅ *Correct answer!*\n\nYou won the game.` }, { quoted: m });
-                }
-                else {
+                } else {
                     game.attempts--;
                     if (game.attempts <= 0) {
                         clearTimeout(game.timeout);
                         delete mathGames[chat];
                         await sock.sendMessage(chat, { text: `❌ *Game Over!*\n\nThe correct answer was: *${game.math.result}*` }, { quoted: m });
-                    }
-                    else {
+                    } else {
                         await sock.sendMessage(chat, { text: `❎ *Wrong answer!*\n\nYou have ${game.attempts} attempts left.` }, { quoted: m });
                     }
                 }
@@ -106,23 +109,25 @@ export default {
         }
     }
 };
+
 function genMath(mode) {
     const [a1, a2, b1, b2, ops, time] = modes[mode];
     let a = randomInt(a1, a2);
-    const b = randomInt(b1, b2);
+    const b = randomInt(b1, b2) || 1; // avoid division by zero
     const op = pickRandom([...ops]);
     const expr = `${a} ${op.replace('/', '*')} ${b < 0 ? `(${b})` : b}`;
     // eslint-disable-next-line no-eval
     let result = eval(expr);
-    if (op === '/')
-        [a, result] = [result, a];
-    return { str: `${a} ${operators[op]} ${b}`, mode, time, result };
+    if (op === '/') [a, result] = [result, a];
+    // Store result as string so answer comparisons are type-safe
+    return { str: `${a} ${operators[op]} ${b}`, mode, time, result: String(result) };
 }
+
 function randomInt(from, to) {
-    if (from > to)
-        [from, to] = [to, from];
+    if (from > to) [from, to] = [to, from];
     return Math.floor(Math.random() * (Math.floor(to) - Math.ceil(from) + 1) + Math.ceil(from));
 }
+
 function pickRandom(list) {
     return list[Math.floor(Math.random() * list.length)];
 }
