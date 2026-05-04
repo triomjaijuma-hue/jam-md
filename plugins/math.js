@@ -44,19 +44,20 @@ export async function handleMathModeReply(sock, chatId, text, message) {
     return true;
 }
 
+let _mathListenerRegistered = false;
+
 export default {
     command: 'math',
     aliases: ['maths', 'ganit'],
     category: 'games',
     description: 'Solve math problems',
     usage: '.math [difficulty]',
-    initialized: false,
     async handler(sock, message, args, _context) {
         const { chatId } = _context;
 
         // ── Register answer listener ONCE — must run before any early returns ──
-        if (!this.initialized) {
-            this.initialized = true;
+        if (!_mathListenerRegistered) {
+            _mathListenerRegistered = true;
             sock.ev.on('messages.upsert', async (upsert) => {
                 const m = upsert.messages[0];
                 if (!m?.message || m.key.fromMe) return;
