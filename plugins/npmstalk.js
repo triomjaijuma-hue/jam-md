@@ -1,5 +1,3 @@
-import pkg from 'api-qasim';
-const QasimAny = pkg;
 export default {
     command: 'npmstalk',
     aliases: ['npmstlk'],
@@ -14,28 +12,34 @@ export default {
             }, { quoted: message });
         }
         try {
-            const res = await QasimAny.npmStalk(args[0]);
-            if (!res || !res.result) {
-                throw new Error('Package not found or API error.');
-            }
-            const data = res.result;
-            const authorName = (typeof data.author === 'object') ? data.author.name : (data.author || 'Unknown');
+            const res = await fetch(`https://registry.npmjs.org/${encodeURIComponent(args[0])}`);
+            if (!res.ok) throw new Error(`Package not found (HTTP ${res.status})`);
+            const data = await res.json();
+            if (!data.name) throw new Error('Package not found.');
+            const latest = data['dist-tags']?.latest || 'N/A';
+            const authorName = typeof data.author === 'object'
+                ? (data.author?.name || 'Unknown')
+                : (data.author || 'Unknown');
             const versionCount = data.versions ? Object.keys(data.versions).length : 0;
+            const weeklyDl = data.downloads?.weekly || '';
             let te = `┌──「 *NPM PACKAGE INFO* 」\n`;
-            te += `▢ *🔖Name:* ${data.name}\n`;
-            te += `▢ *🔖Creator:* ${authorName}\n`;
-            te += `▢ *👥Total Versions:* ${versionCount}\n`;
-            te += `▢ *📌Description:* ${data.description || 'No description'}\n`;
-            te += `▢ *🧩Repository:* ${data.repository?.url || 'No repository available'}\n`;
-            te += `▢ *🌍Homepage:* ${data.homepage || 'No homepage available'}\n`;
-            te += `▢ *🏷️Latest:* ${data['dist-tags']?.latest || 'N/A'}\n`;
-            te += `▢ *🔗Link:* https://npmjs.com/package/${data.name}\n`;
+            te += `▢ *🔖 Name:* ${data.name}\n`;
+            te += `▢ *🔖 Creator:* ${authorName}\n`;
+            te += `▢ *👥 Total Versions:* ${versionCount}\n`;
+            te += `▢ *📌 Description:* ${data.description || 'No description'}\n`;
+            te += `▢ *🧩 Repository:* ${data.repository?.url || 'No repository available'}\n`;
+            te += `▢ *🌍 Homepage:* ${data.homepage || 'No homepage available'}\n`;
+            te += `▢ *🏷️ Latest:* ${latest}\n`;
+            te += `▢ *📅 Published:* ${data.time?.created ? new Date(data.time.created).toDateString() : 'N/A'}\n`;
+            te += `▢ *🔄 Last Updated:* ${data.time?.modified ? new Date(data.time.modified).toDateString() : 'N/A'}\n`;
+            te += `▢ *🔗 Link:* https://npmjs.com/package/${data.name}\n`;
             te += `└────────────`;
             await sock.sendMessage(chatId, { text: te }, { quoted: message });
-        }
-        catch (error) {
+        } catch (error) {
             console.error('NPM Stalk Error:', error);
-            await sock.sendMessage(chatId, { text: `✳️ Error: Package not found or API issue.` }, { quoted: message });
+            await sock.sendMessage(chatId, {
+                text: `✳️ Error: ${error.message || 'Package not found or API issue.'}`
+            }, { quoted: message });
         }
     }
 };

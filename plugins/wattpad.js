@@ -1,44 +1,48 @@
-import pkg from 'api-qasim';
-const QasimAny = pkg;
-import { channelInfo } from '../lib/messageConfig.js';
 export default {
     command: 'wattpad',
     aliases: ['wattpadsearch', 'searchwattpad'],
     category: 'search',
-    description: 'Search for stories on Wattpad!',
+    description: 'Search for stories on Wattpad',
     usage: '.wattpad <query>',
     async handler(sock, message, args, context) {
         const chatId = context.chatId || message.key.remoteJid;
         const query = args.join(' ').trim();
         if (!query) {
             return await sock.sendMessage(chatId, {
-                text: '*Please provide a query (e.g., story title, author, or tag).*' +
-                    `\nExample: .wattpad The Hunger Games`,
-                ...channelInfo
+                text: '*Please provide a search term.*\nExample: .wattpad The Hunger Games'
             }, { quoted: message });
         }
         try {
-            const results = await QasimAny.wattpad(query);
-            if (!Array.isArray(results) || results.length === 0) {
-                throw new Error('No results found for your query.');
+            await sock.sendMessage(chatId, { text: `🔎 Searching Wattpad for *${query}*...` }, { quoted: message });
+            const url = `https://www.wattpad.com/api/v3/search/stories/?query=${encodeURIComponent(query)}&limit=9&fields=id,title,user(name),numReads,voteCount,mainCategory,cover,url,description`;
+            const res = await fetch(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': 'application/json'
+                }
+            });
+            if (!res.ok) throw new Error(`Wattpad API error (HTTP ${res.status})`);
+            const data = await res.json();
+            const stories = data?.stories || data?.data || [];
+            if (!Array.isArray(stories) || stories.length === 0) {
+                throw new Error('No stories found for your query.');
             }
-            const formattedResults = results.slice(0, 9).map((story, index) => {
-                const title = story.judul || 'No title available';
-                const reads = story.dibaca || 'No reads available';
-                const votes = story.divote || 'No votes available';
-                const thumb = story.thumb || '';
-                const link = story.link || 'No link available';
-                return `${index + 1}. *${title}*\n*Reads*: ${reads}\n*Votes*: ${votes}\nRead more: ${link}${thumb ? `\n${thumb}` : ''}`;
+            const formatted = stories.map((s, i) => {
+                const title = s.title || 'Untitled';
+                const author = s.user?.name || 'Unknown';
+                const reads = s.numReads ? Number(s.numReads).toLocaleString() : '?';
+                const votes = s.voteCount ? Number(s.voteCount).toLocaleString() : '?';
+                const category = s.mainCategory || 'General';
+                const link = s.url?.startsWith('http') ? s.url : `https://www.wattpad.com${s.url || ''}`;
+                return `*${i + 1}. ${title}*\n👤 ${author} | 📚 ${category}\n👁 ${reads} reads  ❤️ ${votes} votes\n🔗 ${link}`;
             }).join('\n\n');
             await sock.sendMessage(chatId, {
-                text: `*Search Results For "${query}":*\n\n${formattedResults}`,
-                ...channelInfo
+                text: `📖 *Wattpad Results for "${query}":*\n\n${formatted}`
             }, { quoted: message });
-        }
-        catch (error) {
+        } catch (error) {
+            console.error('Wattpad error:', error);
             await sock.sendMessage(chatId, {
-                text: `❌ An error occurred: ${error.message || error}`,
-                ...channelInfo
+                text: `❌ Failed to search Wattpad.\n\nError: ${error.message}`
             }, { quoted: message });
         }
     }
