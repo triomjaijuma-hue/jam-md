@@ -18,6 +18,7 @@ import pino from 'pino';
 import config from './config.js';
 import store from './lib/lightweight_store.js';
 import SaveCreds from './lib/session.js';
+import { autoBackupSession } from './lib/sessionBackup.js';
 import { server, PORT, setSocket } from './lib/server.js';
 import { printLog } from './lib/print.js';
 import { writeErrorLog } from './lib/logger.js';
@@ -416,6 +417,7 @@ async function startJamBot() {
             if (connection === "open") {
                 printLog('success', 'Bot connected successfully!');
                 setSocket(JamBot);
+                autoBackupSession().catch(e => printLog('warning', 'Session backup: ' + e.message));
                 try {
                     const setbioModule = await import('./plugins/setbio.js');
                     const startAutoBio = setbioModule.startAutoBio || setbioModule.default?.startAutoBio;
