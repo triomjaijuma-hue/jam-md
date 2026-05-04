@@ -22,7 +22,7 @@ function formatTime() {
         hour: '2-digit',
         minute: '2-digit',
         hour12: false,
-        timeZone: config.timeZone || 'UTC'
+        timeZone: config.timeZone || 'Africa/Kampala'
     };
     return now.toLocaleTimeString('en-US', options);
 }
