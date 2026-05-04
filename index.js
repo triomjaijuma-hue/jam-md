@@ -19,7 +19,7 @@ import config from './config.js';
 import store from './lib/lightweight_store.js';
 import SaveCreds from './lib/session.js';
 import { autoBackupSession } from './lib/sessionBackup.js';
-import { server, PORT, setSocket } from './lib/server.js';
+import { server, PORT, setSocket, setPairingCode } from './lib/server.js';
 import { printLog } from './lib/print.js';
 import { writeErrorLog } from './lib/logger.js';
 import { handleMessages, handleGroupParticipantUpdate, handleStatus, handleCall } from './lib/messageHandler.js';
@@ -217,6 +217,7 @@ async function startJamBot() {
             keepAliveIntervalMs: 10000,
         });
         JamBot.store = store;
+        setSocket(JamBot); // expose socket to web /pair endpoint immediately
         const originalSendPresenceUpdate = JamBot.sendPresenceUpdate;
         const originalReadMessages = JamBot.readMessages;
         const originalSendReceipt = JamBot.sendReceipt;
@@ -351,8 +352,12 @@ async function startJamBot() {
                 phoneNumberInput = await question(chalk.bgBlack(chalk.greenBright(`Please type your WhatsApp number 😍\nFormat: 256765309986 (without + or spaces) : `)));
             }
             else {
-                phoneNumberInput = phoneNumber;
-                printLog('info', `Using default phone number: ${phoneNumberInput}`);
+                // No PAIRING_NUMBER set — send to web UI instead of auto-pairing with a random number
+                const domain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL || `localhost:${PORT}`;
+                const pairUrl = domain.startsWith('http') ? `${domain}/pair` : `https://${domain}/pair`;
+                printLog('info', `No PAIRING_NUMBER set. Open ${pairUrl} in your browser to pair.`);
+                if (rl && !rlClosed) { rl.close(); rl = null; }
+                return;
             }
             phoneNumberInput = phoneNumberInput.replace(/[^0-9]/g, '');
             const pn = PhoneNumber(`+${ phoneNumberInput}`);
@@ -366,8 +371,10 @@ async function startJamBot() {
                 try {
                     let code = await JamBot.requestPairingCode(num);
                     code = code?.match(/.{1,4}/g)?.join("-") || code;
-                    console.log(chalk.black(chalk.bgGreen(`Your Pairing Code : `)), chalk.black(chalk.white(code)));
-                    printLog('success', `Pairing code generated: ${code}`);
+                    setPairingCode(code); // stored for web display — not logged
+                    const domain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL || `localhost:${PORT}`;
+                    const pairUrl = domain.startsWith('http') ? `${domain}/pair` : `https://${domain}/pair`;
+                    printLog('info', `Pairing code ready → open ${pairUrl} in your browser to see it`);
                     if (rl && !rlClosed) {
                         rl.close();
                         rl = null;
