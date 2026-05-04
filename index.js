@@ -453,15 +453,6 @@ async function startJamBot() {
                 catch (error) {
                     printLog('error', `Failed to send connection message: ${error.message}`);
                 }
-                try {
-                    const { fileURLToPath: fu } = await import('url');
-                    const picPath = fu(new URL('./assets/thumb.jpg', import.meta.url));
-                    if (fs.existsSync(picPath)) {
-                        const ppBuf = fs.readFileSync(picPath);
-                        await JamBot.updateProfilePicture(JamBot.user.id, ppBuf).catch(() => {});
-                        printLog('success', 'Bot profile picture set!');
-                    }
-                } catch (_ppErr) { printLog('warning', 'Could not set profile picture: ' + _ppErr.message); }
                 await delay(1999);
                 try {
                     owner = JSON.parse(fs.readFileSync('./data/owner.json', 'utf-8'));
