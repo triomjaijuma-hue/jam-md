@@ -39,6 +39,58 @@ function isExpired(session) {
     return Date.now() > session.expires;
 }
 
+// ── Exported: called by messageHandler for plain 1-5 quality replies ─────────
+export async function handleVdownReply(sock, chatId, qualityNum, message, channelInfo) {
+    if (qualityNum < 1 || qualityNum > 5) return false;
+    const session = pending[chatId];
+    if (!session || isExpired(session)) {
+        delete pending[chatId];
+        return false;
+    }
+    const res = RESOLUTIONS[qualityNum - 1];
+    delete pending[chatId];
+
+    await sock.sendMessage(chatId, {
+        image: { url: session.thumbnail },
+        caption: [
+            `🎬 *${session.title}*`,
+            ``,
+            `📥 Downloading in *${res.label}*...`,
+            `⏳ _This may take up to 2 minutes for large videos._`
+        ].join('\n'),
+        ...channelInfo
+    }, { quoted: message });
+
+    try {
+        const videoData = await downloadVideo(session.url, res.format);
+        await sock.sendMessage(chatId, {
+            video: { url: videoData.downloadUrl },
+            mimetype: 'video/mp4',
+            fileName: `${session.title || 'video'}_${res.format}p.mp4`,
+            caption: [
+                `🎬 *${videoData.title || session.title}*`,
+                `📺 Quality: *${res.label}*`,
+                ``,
+                `> _Downloaded by JAM-MD_`
+            ].join('\n'),
+            ...channelInfo
+        }, { quoted: message });
+    } catch (err) {
+        const isTimeout = err.message?.includes('timeout') || err.response?.status === 408;
+        await sock.sendMessage(chatId, {
+            text: [
+                `❌ *Download failed for ${res.label}*`,
+                ``,
+                isTimeout ? '⏱️ Download timed out. Try a lower quality like 360p.' : `Reason: ${err.message}`,
+                ``,
+                `_Run .vdown again and pick a lower quality._`
+            ].join('\n'),
+            ...channelInfo
+        }, { quoted: message });
+    }
+    return true;
+}
+
 export default {
     command: 'vdown',
     aliases: ['viddown', 'ytres', 'ytquality', 'dlvideo'],
