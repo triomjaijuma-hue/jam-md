@@ -1,4 +1,5 @@
 const mathGames = {};
+const pendingMathMode = {}; // tracks chats waiting for difficulty selection
 const modes = {
     noob: [-3, 3, -3, 3, '+-', 15000],
     easy: [-10, 10, -10, 10, '*/+-', 20000],
@@ -29,8 +30,9 @@ export default {
         }
         const mode = args[0]?.toLowerCase();
         if (!mode || !(mode in modes)) {
+            pendingMathMode[chatId] = { ts: Date.now(), senderId: context.senderId || message.key.participant || message.key.remoteJid };
             return sock.sendMessage(chatId, {
-                text: `🧮 *Available Difficulties:*\n\n${Object.keys(modes).join(' | ')}\n\n_Example: ${prefix}math normal_`
+                text: `🧮 *Available Difficulties:*\n\n${Object.keys(modes).join(' | ')}\n\n_Just type the difficulty name e.g. *noob* or *normal*_`
             }, { quoted: message });
         }
         const math = genMath(mode);
@@ -54,6 +56,26 @@ export default {
                 if (!m.message || m.key.fromMe)
                     return;
                 const chat = m.key.remoteJid;
+                // Handle pending difficulty selection (user typed just the mode name)
+                if (pendingMathMode[chat] && (Date.now() - pendingMathMode[chat].ts) < 120000) {
+                    const rawBody = (m.message.conversation || m.message.extendedTextMessage?.text || '').trim().toLowerCase().replace(/^\./, '');
+                    if (rawBody in modes && !mathGames[chat]) {
+                        delete pendingMathMode[chat];
+                        const math = genMath(rawBody);
+                        const txt = `▢ HOW MUCH IS IT *${math.str}*=\n\n_Time:_ ${(math.time / 1000).toFixed(2)} seconds`;
+                        const sentMsg = await sock.sendMessage(chat, { text: txt }, { quoted: m });
+                        mathGames[chat] = {
+                            msg: sentMsg, math, attempts: 4,
+                            timeout: setTimeout(() => {
+                                if (mathGames[chat]) {
+                                    sock.sendMessage(chat, { text: `⏳ *Time is up!*\nThe answer was: *${math.result}*` }, { quoted: mathGames[chat].msg });
+                                    delete mathGames[chat];
+                                }
+                            }, math.time)
+                        };
+                        return;
+                    }
+                }
                 if (!mathGames[chat])
                     return;
                 const body = (m.message.conversation || m.message.extendedTextMessage?.text || "").trim();
