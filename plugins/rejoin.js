@@ -12,6 +12,8 @@
  *                                                                           *
  *****************************************************************************/
 import fs from 'fs';
+import path from 'path';
+import { dataFile } from '../lib/paths.js';
 
 export default {
     command: 'rejoin',
@@ -23,7 +25,7 @@ export default {
     async handler(sock, message, args, context) {
         const { chatId, channelInfo, config } = context;
 
-        const dataPath = './data/last_left_group.json';
+        const dataPath = dataFile('last_left_group.json');
         if (!fs.existsSync(dataPath)) {
             return await sock.sendMessage(chatId, {
                 text: '❌ *No group recorded yet.*\n\nThe bot will remember the next group you leave, then *.rejoin* will bring you back instantly.',
@@ -81,7 +83,8 @@ export default {
         if (isBotAdmin) {
             try {
                 const result = await sock.groupParticipantsUpdate(groupId, [ownerJid], 'add');
-                const status = result?.[0]?.status;
+                // Baileys may return status as a number (200) or string ('200')
+                const status = String(result?.[0]?.status || '');
                 if (status === '200') {
                     try { fs.unlinkSync(dataPath); } catch {}
                     return await sock.sendMessage(chatId, {
@@ -93,9 +96,10 @@ export default {
                         text: '⚠️ *Invite sent!*\n\n*Group:* ' + groupName + '\n\nCheck your WhatsApp notifications and accept the invite.',
                         ...channelInfo
                     }, { quoted: message });
+                } else if (status === '403') {
+                    // Privacy settings block direct add — fall through to invite link
                 }
-                // 403 or other → fall through to invite link
-            } catch (_e) { /* fall through */ }
+            } catch (_e) { /* fall through to invite link */ }
         }
 
         // Fallback: generate and send invite link
