@@ -21,7 +21,7 @@ const games = {};
 
 export default {
     command: 'hangman',
-    aliases: ['hang', 'hm', 'guess'],
+    aliases: ['hang', 'hm', 'guess', 'stophangman', 'hangstop'],
     category: 'games',
     description: 'Play Hangman — guess the word letter by letter',
     usage: '.hangman to start | .guess <letter> to play',
@@ -35,6 +35,20 @@ export default {
         const cmdUsed = raw.slice(1).split(/\s+/)[0].toLowerCase();
         const senderJid = message.key.participant || message.key.remoteJid;
         const senderTag = `@${senderJid.split('@')[0]}`;
+
+        // ── .stophangman ─────────────────────────────────────────────
+        if (['stophangman', 'hangstop'].includes(cmdUsed)) {
+            if (!games[chatId]) {
+                return sock.sendMessage(chatId, {
+                    text: '❌ No hangman game is running right now.'
+                }, { quoted: message });
+            }
+            const stopped = games[chatId];
+            delete games[chatId];
+            return sock.sendMessage(chatId, {
+                text: `🛑 *Hangman stopped!*\n\nThe word was: *${stopped.word.toUpperCase()}*\n\n_Start a new game anytime with .hangman_`
+            }, { quoted: message });
+        }
 
         // ── .guess <letter> ─────────────────────────────────────────
         if (cmdUsed === 'guess') {
