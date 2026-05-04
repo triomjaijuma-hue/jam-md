@@ -371,10 +371,14 @@ async function startJamBot() {
                 try {
                     let code = await JamBot.requestPairingCode(num);
                     code = code?.match(/.{1,4}/g)?.join("-") || code;
-                    setPairingCode(code); // stored for web display — not logged
+                    setPairingCode(code);
                     const domain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL || `localhost:${PORT}`;
                     const pairUrl = domain.startsWith('http') ? `${domain}/pair` : `https://${domain}/pair`;
-                    printLog('info', `Pairing code ready → open ${pairUrl} in your browser to see it`);
+                    printLog('info', `╔══════════════════════════════╗`);
+                    printLog('info', `║  PAIRING CODE: ${code}  ║`);
+                    printLog('info', `╚══════════════════════════════╝`);
+                    printLog('info', `Enter this code in WhatsApp → Linked Devices → Link with phone number`);
+                    printLog('info', `Or open ${pairUrl} in your browser to see it`);
                     if (rl && !rlClosed) {
                         rl.close();
                         rl = null;
