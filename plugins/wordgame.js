@@ -120,8 +120,11 @@ export default {
             _wordListenerRegistered = true;
             sock.ev.on('messages.upsert', async (upsert) => {
                 const m = upsert.messages[0];
-                if (!m?.message || m.key.fromMe) return;
+                if (!m?.message) return;
                 const chat = m.key.remoteJid;
+                const isGroupMsg = chat.endsWith('@g.us');
+                // In groups skip bot's own messages; in DMs/self-chat allow them
+                if (m.key.fromMe && isGroupMsg) return;
                 if (!wordGames[chat]) return;
 
                 const body = (
