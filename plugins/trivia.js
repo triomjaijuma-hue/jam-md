@@ -105,6 +105,32 @@ function buildQuestionText(game) {
     );
 }
 
+// ── Exported: called by messageHandler for plain A/B/C/D replies ────────────
+export async function handleTriviaReply(sock, chatId, senderId, letter, message, channelInfo) {
+    if (!LABELS.includes(letter)) return false;
+    const game = triviaGames[chatId];
+    if (!game) return false;
+    const chosen = game.options[LABELS.indexOf(letter)];
+    const isCorrect = chosen?.toLowerCase() === game.correctAnswer.toLowerCase();
+    clearTimeout(game.timer);
+    delete triviaGames[chatId];
+    const senderJid = senderId || message.key.participant || message.key.remoteJid;
+    if (isCorrect) {
+        await sock.sendMessage(chatId, {
+            text: `🎉 *@${senderJid.split('@')[0]} got it!*\n\n✅ *${letter}. ${chosen}* is correct!\n\n_Play again with .trivia_ 🎯`,
+            mentions: [senderJid],
+            ...channelInfo
+        }, { quoted: message });
+    } else {
+        await sock.sendMessage(chatId, {
+            text: `❌ *@${senderJid.split('@')[0]} is wrong!*\n\n_Picked:_ ${letter}. ${chosen}\n✅ *Correct answer:* ${game.correctAnswer}\n\n_Play again with .trivia_ 🎯`,
+            mentions: [senderJid],
+            ...channelInfo
+        }, { quoted: message });
+    }
+    return true;
+}
+
 export default {
     command: 'trivia',
     aliases: ['quiz', 'stoptrivia', 'triviastop'],
