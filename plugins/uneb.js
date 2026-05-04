@@ -1,132 +1,200 @@
 // ─── UNEB Past Papers ──────────────────────────────────────────────────────
-// Usage:
-//   .uneb                   → show help & subjects
-//   .uneb ple [year]        → PLE papers
-//   .uneb uce [subj] [year] → UCE (O-Level) paper
-//   .uneb uace [subj] [year]→ UACE (A-Level) paper
+// .uneb                    → help
+// .uneb ple [year]         → PLE papers
+// .uneb uce [subj] [year]  → UCE (O-Level)
+// .uneb uace [subj] [year] → UACE (A-Level)
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: CURRENT_YEAR - 2009 }, (_, i) => String(2010 + i));
 
-// Subject aliases (normalised → display name + UNEB slug)
 const UCE_SUBJECTS = {
-    english:        { name: 'English Language',          slug: 'english-language' },
-    mathematics:    { name: 'Mathematics',               slug: 'mathematics' },
-    math:           { name: 'Mathematics',               slug: 'mathematics' },
-    physics:        { name: 'Physics',                   slug: 'physics' },
-    chemistry:      { name: 'Chemistry',                 slug: 'chemistry' },
-    biology:        { name: 'Biology',                   slug: 'biology' },
-    history:        { name: 'History',                   slug: 'history' },
-    geography:      { name: 'Geography',                 slug: 'geography' },
-    commerce:       { name: 'Commerce',                  slug: 'commerce' },
-    literature:     { name: 'Literature in English',     slug: 'literature' },
-    crp:            { name: 'Christian Religious Ed.',   slug: 'christian-religious-education' },
-    irp:            { name: 'Islamic Religious Ed.',     slug: 'islamic-religious-education' },
-    agriculture:    { name: 'Agriculture',               slug: 'agriculture' },
-    computer:       { name: 'Computer Studies',          slug: 'computer-studies' },
-    ict:            { name: 'Computer Studies',          slug: 'computer-studies' },
-    art:            { name: 'Art & Crafts',              slug: 'art' },
-    music:          { name: 'Music',                     slug: 'music' },
-    french:         { name: 'French',                    slug: 'french' },
-    kiswahili:      { name: 'Kiswahili',                 slug: 'kiswahili' },
-    swahili:        { name: 'Kiswahili',                 slug: 'kiswahili' },
-    entrepreneurship: { name: 'Entrepreneurship',        slug: 'entrepreneurship' },
+    english:          { name: 'English Language',             slug: 'english-language' },
+    mathematics:      { name: 'Mathematics',                  slug: 'mathematics' },
+    math:             { name: 'Mathematics',                  slug: 'mathematics' },
+    physics:          { name: 'Physics',                      slug: 'physics' },
+    chemistry:        { name: 'Chemistry',                    slug: 'chemistry' },
+    biology:          { name: 'Biology',                      slug: 'biology' },
+    history:          { name: 'History',                      slug: 'history' },
+    geography:        { name: 'Geography',                    slug: 'geography' },
+    commerce:         { name: 'Commerce',                     slug: 'commerce' },
+    literature:       { name: 'Literature in English',        slug: 'literature' },
+    crp:              { name: 'Christian Religious Ed.',      slug: 'christian-religious-education' },
+    irp:              { name: 'Islamic Religious Ed.',        slug: 'islamic-religious-education' },
+    agriculture:      { name: 'Agriculture',                  slug: 'agriculture' },
+    computer:         { name: 'Computer Studies',             slug: 'computer-studies' },
+    ict:              { name: 'Computer Studies',             slug: 'computer-studies' },
+    art:              { name: 'Art & Crafts',                 slug: 'art' },
+    music:            { name: 'Music',                        slug: 'music' },
+    french:           { name: 'French',                       slug: 'french' },
+    kiswahili:        { name: 'Kiswahili',                    slug: 'kiswahili' },
+    swahili:          { name: 'Kiswahili',                    slug: 'kiswahili' },
+    entrepreneurship: { name: 'Entrepreneurship',             slug: 'entrepreneurship' },
 };
 
 const UACE_SUBJECTS = {
-    english:        { name: 'General Paper',             slug: 'general-paper' },
-    gp:             { name: 'General Paper',             slug: 'general-paper' },
-    mathematics:    { name: 'Mathematics',               slug: 'mathematics' },
-    math:           { name: 'Mathematics',               slug: 'mathematics' },
-    physics:        { name: 'Physics',                   slug: 'physics' },
-    chemistry:      { name: 'Chemistry',                 slug: 'chemistry' },
-    biology:        { name: 'Biology',                   slug: 'biology' },
-    history:        { name: 'History',                   slug: 'history' },
-    geography:      { name: 'Geography',                 slug: 'geography' },
-    economics:      { name: 'Economics',                 slug: 'economics' },
-    literature:     { name: 'Literature in English',     slug: 'literature' },
-    crp:            { name: 'Christian Religious Ed.',   slug: 'christian-religious-education' },
-    irp:            { name: 'Islamic Religious Ed.',     slug: 'islamic-religious-education' },
-    agriculture:    { name: 'Agriculture',               slug: 'agriculture' },
-    computer:       { name: 'Computer Studies',          slug: 'computer-studies' },
-    ict:            { name: 'Computer Studies',          slug: 'computer-studies' },
-    art:            { name: 'Art',                       slug: 'art' },
-    french:         { name: 'French',                    slug: 'french' },
-    kiswahili:      { name: 'Kiswahili',                 slug: 'kiswahili' },
-    swahili:        { name: 'Kiswahili',                 slug: 'kiswahili' },
-    submath:        { name: 'Sub-Mathematics',           slug: 'sub-mathematics' },
-    fine:           { name: 'Fine Art',                  slug: 'fine-art' },
-    divinity:       { name: 'Divinity',                  slug: 'divinity' },
-    entrepreneurship: { name: 'Entrepreneurship',        slug: 'entrepreneurship' },
+    english:          { name: 'General Paper',                slug: 'general-paper' },
+    gp:               { name: 'General Paper',                slug: 'general-paper' },
+    mathematics:      { name: 'Mathematics',                  slug: 'mathematics' },
+    math:             { name: 'Mathematics',                  slug: 'mathematics' },
+    physics:          { name: 'Physics',                      slug: 'physics' },
+    chemistry:        { name: 'Chemistry',                    slug: 'chemistry' },
+    biology:          { name: 'Biology',                      slug: 'biology' },
+    history:          { name: 'History',                      slug: 'history' },
+    geography:        { name: 'Geography',                    slug: 'geography' },
+    economics:        { name: 'Economics',                    slug: 'economics' },
+    literature:       { name: 'Literature in English',        slug: 'literature' },
+    crp:              { name: 'Christian Religious Ed.',      slug: 'christian-religious-education' },
+    irp:              { name: 'Islamic Religious Ed.',        slug: 'islamic-religious-education' },
+    agriculture:      { name: 'Agriculture',                  slug: 'agriculture' },
+    computer:         { name: 'Computer Studies',             slug: 'computer-studies' },
+    ict:              { name: 'Computer Studies',             slug: 'computer-studies' },
+    art:              { name: 'Fine Art',                     slug: 'fine-art' },
+    french:           { name: 'French',                       slug: 'french' },
+    kiswahili:        { name: 'Kiswahili',                    slug: 'kiswahili' },
+    swahili:          { name: 'Kiswahili',                    slug: 'kiswahili' },
+    submath:          { name: 'Sub-Mathematics',              slug: 'sub-mathematics' },
+    divinity:         { name: 'Divinity',                     slug: 'divinity' },
+    entrepreneurship: { name: 'Entrepreneurship',             slug: 'entrepreneurship' },
 };
 
-// ─── URL builders ─────────────────────────────────────────────────────────
+// ─── Real PDF sources (tried in order) ────────────────────────────────────
 
-function unebOfficialUrl(examType, year, subjectSlug) {
-    // UNEB official past papers page
-    return `https://www.uneb.ac.ug/past-papers/?exam=${examType}&year=${year}&subject=${subjectSlug}`;
+const FETCH_OPTS = {
+    headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-UG,en;q=0.9',
+    },
+    redirect: 'follow'
+};
+
+// Scrape a URL looking for PDF links in the HTML
+async function scrapePdfLinks(url) {
+    try {
+        const res = await fetch(url, { ...FETCH_OPTS, signal: AbortSignal.timeout(12000) });
+        if (!res.ok) return [];
+        const html = await res.text();
+        const matches = [...html.matchAll(/href=["']([^"']*\.pdf[^"']*)/gi)].map(m => {
+            const href = m[1];
+            return href.startsWith('http') ? href : new URL(href, url).href;
+        });
+        return [...new Set(matches)];
+    } catch { return []; }
 }
 
-function unebSearchUrl(examType, subject, year) {
-    return `https://www.google.com/search?q=UNEB+${examType}+${subject}+${year}+past+paper+PDF+site:uneb.ac.ug`;
+// Verify a URL actually returns a PDF
+async function verifyPdf(url) {
+    try {
+        const res = await fetch(url, {
+            method: 'HEAD',
+            signal: AbortSignal.timeout(8000),
+            headers: { 'User-Agent': FETCH_OPTS.headers['User-Agent'] }
+        });
+        if (!res.ok) return false;
+        const ct = res.headers.get('content-type') || '';
+        return ct.includes('pdf') || url.toLowerCase().endsWith('.pdf');
+    } catch { return false; }
 }
 
-function altSearchUrl(examType, subject, year) {
-    return `https://www.google.com/search?q=UNEB+Uganda+${examType}+${subject}+past+paper+${year}+PDF`;
-}
+// Try to find a real downloadable PDF for the given paper
+async function findPaperPdf(examType, subjectInfo, year) {
+    const exam = examType.toUpperCase();
+    const slug = subjectInfo.slug;
+    const name = subjectInfo.name.replace(/ /g, '+');
 
-// Try fetching a real PDF from known sources
-async function tryFetchPaperUrl(examType, subjectSlug, year) {
-    // Try UNEB official domain variations
-    const candidates = [
-        `https://www.uneb.ac.ug/wp-content/uploads/${year}/${examType.toLowerCase()}-${subjectSlug}-${year}.pdf`,
-        `https://www.uneb.ac.ug/wp-content/uploads/${year}/${examType.toUpperCase()}-${year}-${subjectSlug}.pdf`,
-        `https://www.uneb.ac.ug/past-papers/${examType.toLowerCase()}/${year}/${subjectSlug}.pdf`,
-        `https://www.uneb.ac.ug/${year}/${subjectSlug}-${examType.toLowerCase()}.pdf`,
+    // 1. Try UNEB official site — scrape the past-papers page
+    const unebPage = `https://www.uneb.ac.ug/past-papers/?exam=${exam}&year=${year}&subject=${slug}`;
+    const unebLinks = await scrapePdfLinks(unebPage);
+    for (const link of unebLinks) {
+        if (await verifyPdf(link)) return link;
+    }
+
+    // 2. Try UNEB WordPress uploads with common filename patterns
+    const patterns = [
+        `https://www.uneb.ac.ug/wp-content/uploads/${year}/${exam}-${slug}-${year}.pdf`,
+        `https://www.uneb.ac.ug/wp-content/uploads/${year}/${slug}-${year}.pdf`,
+        `https://www.uneb.ac.ug/wp-content/uploads/${year}/${exam.toLowerCase()}-${slug}-${year}.pdf`,
+        `https://www.uneb.ac.ug/wp-content/uploads/${year}/${year}-${exam}-${slug}.pdf`,
     ];
-    for (const url of candidates) {
-        try {
-            const res = await fetch(url, {
-                method: 'HEAD',
-                signal: AbortSignal.timeout(5000),
-                headers: { 'User-Agent': 'Mozilla/5.0' }
-            });
-            if (res.ok && res.headers.get('content-type')?.includes('pdf')) return url;
-        } catch { continue; }
+    for (const url of patterns) {
+        if (await verifyPdf(url)) return url;
+    }
+
+    // 3. Try pastpapers.co.ug
+    const pastPapersBase = `https://www.pastpapers.co.ug/${exam.toLowerCase()}-past-papers/${slug}/`;
+    const pastLinks = await scrapePdfLinks(pastPapersBase);
+    for (const link of pastLinks) {
+        if (link.includes(year) && await verifyPdf(link)) return link;
+    }
+
+    // 4. Try ugandaexams.net
+    const ugExamsUrl = `https://ugandaexams.net/${exam.toLowerCase()}/${slug}/${year}/`;
+    const ugLinks = await scrapePdfLinks(ugExamsUrl);
+    for (const link of ugLinks) {
+        if (await verifyPdf(link)) return link;
+    }
+
+    return null;
+}
+
+async function findPlePdf(year) {
+    const unebPage = `https://www.uneb.ac.ug/past-papers/?exam=PLE&year=${year}`;
+    const links = await scrapePdfLinks(unebPage);
+    for (const link of links) {
+        if (await verifyPdf(link)) return link;
+    }
+    const patterns = [
+        `https://www.uneb.ac.ug/wp-content/uploads/${year}/PLE-${year}.pdf`,
+        `https://www.uneb.ac.ug/wp-content/uploads/${year}/ple-${year}.pdf`,
+    ];
+    for (const url of patterns) {
+        if (await verifyPdf(url)) return url;
     }
     return null;
 }
 
-// ─── Formatters ─────────────────────────────────────────────────────────────
+// ─── Search links (always available as fallback) ────────────────────────────
 
-function formatUceSubjects() {
-    return Object.entries(UCE_SUBJECTS)
-        .filter(([k]) => !['math', 'ict', 'swahili'].includes(k))
-        .map(([k, v]) => `  • *${k}* — ${v.name}`)
-        .join('\n');
+function googlePdfSearch(exam, subject, year) {
+    const q = encodeURIComponent(`UNEB ${exam} ${subject} ${year} past paper`);
+    return `https://www.google.com/search?q=${q}+filetype%3Apdf`;
 }
 
-function formatUaceSubjects() {
-    return Object.entries(UACE_SUBJECTS)
+function unebOfficialPage(exam, year, slug) {
+    return `https://www.uneb.ac.ug/past-papers/?exam=${exam}&year=${year}&subject=${slug}`;
+}
+
+// ─── Help text ──────────────────────────────────────────────────────────────
+
+function formatSubjects(map) {
+    return Object.entries(map)
         .filter(([k]) => !['math', 'ict', 'swahili', 'gp'].includes(k))
         .map(([k, v]) => `  • *${k}* — ${v.name}`)
         .join('\n');
 }
 
 function helpText() {
-    return `📚 *UNEB Past Papers*\n\n` +
-        `*Usage:*\n` +
-        `  • *.uneb ple [year]* — Primary Leaving Exam\n` +
-        `  • *.uneb uce [subject] [year]* — O-Level\n` +
-        `  • *.uneb uace [subject] [year]* — A-Level\n\n` +
-        `*Examples:*\n` +
-        `  *.uneb ple 2023*\n` +
-        `  *.uneb uce mathematics 2022*\n` +
-        `  *.uneb uace physics 2021*\n\n` +
-        `*Available years:* 2010 – ${CURRENT_YEAR - 1}\n\n` +
-        `*UCE Subjects:*\n${formatUceSubjects()}\n\n` +
-        `*UACE Subjects:*\n${formatUaceSubjects()}\n\n` +
-        `_Tip: Use *.uneb uce* or *.uneb uace* to see subject list_`;
+    return [
+        `📚 *UNEB Past Papers*`,
+        ``,
+        `*Usage:*`,
+        `  • *.uneb ple [year]* — Primary Leaving Exam`,
+        `  • *.uneb uce [subject] [year]* — O-Level`,
+        `  • *.uneb uace [subject] [year]* — A-Level`,
+        ``,
+        `*Examples:*`,
+        `  .uneb ple 2023`,
+        `  .uneb uce mathematics 2022`,
+        `  .uneb uace physics 2021`,
+        ``,
+        `*Available years:* 2010 – ${CURRENT_YEAR - 1}`,
+        ``,
+        `*UCE Subjects:*`,
+        formatSubjects(UCE_SUBJECTS),
+        ``,
+        `*UACE Subjects:*`,
+        formatSubjects(UACE_SUBJECTS),
+    ].join('\n');
 }
 
 // ─── Plugin ──────────────────────────────────────────────────────────────────
@@ -156,21 +224,41 @@ export default {
                 }, { quoted: message });
             }
 
-            await sock.sendMessage(chatId, { text: `🔍 Searching PLE ${year} papers...` }, { quoted: message });
+            await sock.sendMessage(chatId, {
+                text: `🔍 Searching for PLE ${year} papers...`
+            }, { quoted: message });
 
-            const pleSubjects = ['English', 'Mathematics', 'Social Studies & Religious Education (SST/RE)', 'Integrated Science'];
-            const offUrl = `https://www.uneb.ac.ug/past-papers/?exam=PLE&year=${year}`;
-            const searchUrl = `https://www.google.com/search?q=UNEB+PLE+${year}+past+paper+PDF`;
+            const pdf = await findPlePdf(year);
 
-            let text = `📚 *UNEB PLE ${year} Past Papers*\n`;
-            text += `━━━━━━━━━━━━━━━━━━━\n\n`;
-            text += `*Subjects examined:*\n`;
-            pleSubjects.forEach((s, i) => { text += `  ${i + 1}. ${s}\n`; });
-            text += `\n🌐 *Official UNEB page:*\n${offUrl}\n\n`;
-            text += `🔎 *Search for PDF:*\n${searchUrl}\n\n`;
-            text += `_Tap the official link or search link to find and download the PDFs._`;
+            if (pdf) {
+                try {
+                    return await sock.sendMessage(chatId, {
+                        document: { url: pdf },
+                        mimetype: 'application/pdf',
+                        fileName: `UNEB_PLE_${year}.pdf`,
+                        caption: `📄 *UNEB PLE ${year} Past Paper*`
+                    }, { quoted: message });
+                } catch { /* fall through */ }
+            }
 
-            return sock.sendMessage(chatId, { text }, { quoted: message });
+            const pleSubjects = ['English', 'Mathematics', 'SST & Religious Education', 'Integrated Science'];
+            return sock.sendMessage(chatId, {
+                text: [
+                    `📚 *UNEB PLE ${year} Past Papers*`,
+                    `━━━━━━━━━━━━━━━━━━━`,
+                    ``,
+                    `*Subjects:*`,
+                    ...pleSubjects.map((s, i) => `  ${i + 1}. ${s}`),
+                    ``,
+                    `📥 *Download PDFs:*`,
+                    `${unebOfficialPage('PLE', year, '')}`,
+                    ``,
+                    `🔎 *Google PDF search:*`,
+                    `${googlePdfSearch('PLE', 'Primary Leaving Exam', year)}`,
+                    ``,
+                    `_Tap either link and look for the PDF download buttons._`
+                ].join('\n')
+            }, { quoted: message });
         }
 
         // ── UCE / UACE ────────────────────────────────────────────────────────
@@ -178,7 +266,6 @@ export default {
             const subjects = examRaw === 'uce' ? UCE_SUBJECTS : UACE_SUBJECTS;
             const examLabel = examRaw === 'uce' ? 'UCE (O-Level)' : 'UACE (A-Level)';
 
-            // No subject — list subjects
             if (!args[1]) {
                 const list = Object.entries(subjects)
                     .filter(([k]) => !['math', 'ict', 'swahili', 'gp'].includes(k))
@@ -191,15 +278,15 @@ export default {
 
             const subjectKey = args[1]?.toLowerCase().replace(/[^a-z]/g, '');
             const yearArg = args[2] || String(CURRENT_YEAR - 1);
-
             const subjectInfo = subjects[subjectKey];
+
             if (!subjectInfo) {
-                const keys = Object.keys(subjects).filter(k => !['math', 'ict', 'swahili', 'gp'].includes(k)).join(', ');
+                const keys = Object.keys(subjects)
+                    .filter(k => !['math', 'ict', 'swahili', 'gp'].includes(k)).join(', ');
                 return sock.sendMessage(chatId, {
                     text: `❌ *Unknown subject:* _${subjectKey}_\n\n*Available:* ${keys}`
                 }, { quoted: message });
             }
-
             if (!YEARS.includes(yearArg)) {
                 return sock.sendMessage(chatId, {
                     text: `❌ *Invalid year.* Available: 2010 – ${CURRENT_YEAR - 1}`
@@ -207,51 +294,52 @@ export default {
             }
 
             await sock.sendMessage(chatId, {
-                text: `🔍 Searching ${examLabel} ${subjectInfo.name} ${yearArg}...`
+                text: `🔍 Searching for ${examLabel} *${subjectInfo.name}* ${yearArg} paper...`
             }, { quoted: message });
 
-            // Try to find a direct PDF link
-            const directPdf = await tryFetchPaperUrl(examRaw.toUpperCase(), subjectInfo.slug, yearArg);
+            const pdf = await findPaperPdf(examRaw, subjectInfo, yearArg);
 
-            const offUrl  = `https://www.uneb.ac.ug/past-papers/?exam=${examRaw.toUpperCase()}&year=${yearArg}&subject=${subjectInfo.slug}`;
-            const searchUrl = altSearchUrl(examRaw.toUpperCase(), subjectInfo.name.replace(/ /g, '+'), yearArg);
-
-            if (directPdf) {
-                // Send as document
+            if (pdf) {
                 try {
-                    await sock.sendMessage(chatId, {
-                        document: { url: directPdf },
+                    return await sock.sendMessage(chatId, {
+                        document: { url: pdf },
                         mimetype: 'application/pdf',
                         fileName: `UNEB_${examRaw.toUpperCase()}_${subjectInfo.name.replace(/ /g, '_')}_${yearArg}.pdf`,
-                        caption: `📄 *UNEB ${examLabel}*\n*Subject:* ${subjectInfo.name}\n*Year:* ${yearArg}`
+                        caption: [
+                            `📄 *UNEB ${examLabel}*`,
+                            `*Subject:* ${subjectInfo.name}`,
+                            `*Year:* ${yearArg}`
+                        ].join('\n')
                     }, { quoted: message });
-                    return;
-                } catch { /* fall through to text */ }
+                } catch { /* fall through to links */ }
             }
 
-            // Text fallback with links
-            let text = `📚 *UNEB ${examLabel} — ${subjectInfo.name} (${yearArg})*\n`;
-            text += `━━━━━━━━━━━━━━━━━━━\n\n`;
-            text += directPdf
-                ? `✅ *Direct PDF link found:*\n${directPdf}\n\n`
-                : `⚠️ _Direct PDF link not auto-found. Use the links below:_\n\n`;
-            text += `🌐 *UNEB Official Page:*\n${offUrl}\n\n`;
-            text += `🔎 *Google Search:*\n${searchUrl}\n\n`;
-            text += `📌 *Also try:*\nhttps://www.google.com/search?q=site:uneb.ac.ug+${examRaw.toUpperCase()}+${yearArg}+${encodeURIComponent(subjectInfo.name)}+past+paper\n\n`;
-            text += `_Tap any link to find and download the PDF._`;
-
-            return sock.sendMessage(chatId, { text }, { quoted: message });
+            return sock.sendMessage(chatId, {
+                text: [
+                    `📚 *UNEB ${examLabel} — ${subjectInfo.name} (${yearArg})*`,
+                    `━━━━━━━━━━━━━━━━━━━`,
+                    ``,
+                    `⚠️ _Couldn't auto-download the PDF. Use the links below:_`,
+                    ``,
+                    `🌐 *UNEB Official Page:*`,
+                    unebOfficialPage(examRaw.toUpperCase(), yearArg, subjectInfo.slug),
+                    ``,
+                    `🔎 *Google PDF search:*`,
+                    googlePdfSearch(examRaw.toUpperCase(), subjectInfo.name, yearArg),
+                    ``,
+                    `📌 *Direct site search:*`,
+                    `https://www.google.com/search?q=site:uneb.ac.ug+${encodeURIComponent(subjectInfo.name)}+${yearArg}+filetype:pdf`,
+                    ``,
+                    `_Open any link above, find the paper, then download the PDF._`
+                ].join('\n')
+            }, { quoted: message });
         }
 
-        // ── Fallback: user may have typed subject directly ─────────────────
-        // e.g. .uneb mathematics 2022  (guessing UCE)
-        const possibleSubject = examRaw;
-        const possibleYear = args[1];
-
-        const uceMatch = UCE_SUBJECTS[possibleSubject];
-        if (uceMatch && possibleYear && YEARS.includes(possibleYear)) {
-            // re-invoke as UCE
-            return this.handler(sock, message, ['uce', possibleSubject, possibleYear], context);
+        // ── Shorthand: .uneb mathematics 2022 (guess UCE) ─────────────────────
+        const uceMatch = UCE_SUBJECTS[examRaw];
+        const yearGuess = args[1];
+        if (uceMatch && yearGuess && YEARS.includes(yearGuess)) {
+            return this.handler(sock, message, ['uce', examRaw, yearGuess], context);
         }
 
         return sock.sendMessage(chatId, { text: helpText() }, { quoted: message });
