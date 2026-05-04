@@ -38,6 +38,7 @@ function hint(word) {
 }
 
 const wordGames = {};
+let _wordListenerRegistered = false;
 
 export default {
     command: 'wordgame',
@@ -45,7 +46,6 @@ export default {
     category: 'games',
     description: 'Scrambled word game — first to unscramble wins!',
     usage: '.wordgame to start | type the answer to win',
-    initialized: false,
 
     async handler(sock, message, args, context) {
         const { chatId } = context;
@@ -116,8 +116,8 @@ export default {
         }, { quoted: message });
 
         // ── Listen for answers ───────────────────────────────────────
-        if (!this.initialized) {
-            this.initialized = true;
+        if (!_wordListenerRegistered) {
+            _wordListenerRegistered = true;
             sock.ev.on('messages.upsert', async (upsert) => {
                 const m = upsert.messages[0];
                 if (!m?.message || m.key.fromMe) return;
