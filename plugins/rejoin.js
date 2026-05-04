@@ -1,153 +1,115 @@
+/*****************************************************************************
+ *                                                                           *
+ *                     Developed By Jaiton fangs                                *
+ *                                                                           *
+ *  🌐  GitHub   : https://github.com/JAM-MD                         *
+ *  ▶️  YouTube  : https://youtube.com/@JAM-MD                       *
+ *  💬  WhatsApp :                                                           *
+ *                                                                           *
+ *    © 2026 JAM-MD. All rights reserved.                            *
+ *                                                                           *
+ *    Description: Rejoin the last group owner left, without needing a link. *
+ *                                                                           *
+ *****************************************************************************/
 import fs from 'fs';
-import path from 'path';
-import { dataFile } from '../lib/paths.js';
-
-const LEFT_GROUPS_FILE = dataFile('leftGroups.json');
-
-function loadLeftGroups() {
-    try {
-        if (fs.existsSync(LEFT_GROUPS_FILE)) return JSON.parse(fs.readFileSync(LEFT_GROUPS_FILE, 'utf8'));
-    } catch { }
-    return [];
-}
-
-function saveLeftGroups(list) {
-    try {
-        const dir = path.dirname(LEFT_GROUPS_FILE);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(LEFT_GROUPS_FILE, JSON.stringify(list, null, 2));
-    } catch (e) {
-        console.error('[Rejoin] Save error:', e.message);
-    }
-}
-
-/**
- * Called by messageHandler when the owner leaves/is removed from a group.
- * Stores the group info + invite link so .rejoin can retrieve it later.
- */
-export async function handleOwnerLeave(sock, groupId, ownerJid) {
-    try {
-        let name = groupId;
-        let inviteCode = null;
-        try {
-            const meta = await sock.groupMetadata(groupId);
-            name = meta.subject || groupId;
-        } catch { }
-        try {
-            inviteCode = await sock.groupInviteCode(groupId);
-        } catch { }
-
-        const list = loadLeftGroups();
-        // Remove duplicate entry for same group
-        const filtered = list.filter(g => g.id !== groupId);
-        filtered.unshift({
-            id: groupId,
-            name,
-            inviteCode,
-            leftAt: new Date().toISOString()
-        });
-        // Keep last 20
-        saveLeftGroups(filtered.slice(0, 20));
-        console.log(`[Rejoin] Saved left group: ${name}`);
-    } catch (e) {
-        console.error('[Rejoin] handleOwnerLeave error:', e.message);
-    }
-}
 
 export default {
     command: 'rejoin',
-    aliases: ['rjoin', 'groupback', 'getback'],
+    aliases: ['rjoin', 'backjoin'],
     category: 'owner',
-    description: 'Rejoin a group you accidentally left — no link or admin help needed',
-    usage: '.rejoin | .rejoin <name or number>',
+    description: 'Rejoin the last group you left — no link needed',
+    usage: '.rejoin',
     ownerOnly: true,
     async handler(sock, message, args, context) {
-        const { chatId } = context;
-        const query = args.join(' ').trim().toLowerCase();
+        const { chatId, channelInfo, config } = context;
 
-        // ── Case 1: .rejoin with no args — show live list of all groups bot is in ──
-        if (!query) {
-            try {
-                await sock.sendMessage(chatId, { text: '📋 Fetching groups...' }, { quoted: message });
-                const groups = await sock.groupFetchAllParticipating();
-                const list = Object.values(groups);
-                if (!list.length) {
-                    return sock.sendMessage(chatId, {
-                        text: '❌ Bot is not in any groups.'
-                    }, { quoted: message });
-                }
-                let text = `👥 *Groups Bot Is In (${list.length}):*\n\n`;
-                list.slice(0, 30).forEach((g, i) => {
-                    text += `*${i + 1}.* ${g.subject}\n`;
-                });
-                if (list.length > 30) text += `\n_...and ${list.length - 30} more_`;
-                text += `\n\n📌 *To get an invite link:*\n_.rejoin <number or group name>_\n\nExample: _.rejoin 1_ or _.rejoin Family_`;
-                await sock.sendMessage(chatId, { text }, { quoted: message });
-            } catch (e) {
-                await sock.sendMessage(chatId, {
-                    text: `❌ Failed to fetch groups: ${e.message}`
-                }, { quoted: message });
-            }
-            return;
+        const dataPath = './data/last_left_group.json';
+        if (!fs.existsSync(dataPath)) {
+            return await sock.sendMessage(chatId, {
+                text: '❌ *No group recorded yet.*\n\nThe bot will remember the next group you leave, then *.rejoin* will bring you back instantly.',
+                ...channelInfo
+            }, { quoted: message });
         }
 
-        // ── Case 2: .rejoin <query> — find group and send invite link ──
+        let record;
+        try { record = JSON.parse(fs.readFileSync(dataPath, 'utf-8')); }
+        catch {
+            return await sock.sendMessage(chatId, {
+                text: '❌ *Failed to read saved group data.*',
+                ...channelInfo
+            }, { quoted: message });
+        }
+
+        const { groupId, groupName, leftAt } = record;
+        const ownerJid = (config.ownerNumber || '').replace(/[^0-9]/g, '') + '@s.whatsapp.net';
+        const timeAgo = leftAt ? Math.round((Date.now() - leftAt) / 60000) : '?';
+
+        await sock.sendMessage(chatId, {
+            text: '🔄 *Trying to rejoin...*\n\n*Group:* ' + groupName + '\n*Left:* ' + timeAgo + ' minute(s) ago',
+            ...channelInfo
+        }, { quoted: message });
+
+        // Check if bot is still in the group
+        let groupMeta;
         try {
-            await sock.sendMessage(chatId, { text: `🔎 Finding group *"${query}"*...` }, { quoted: message });
-            const groups = await sock.groupFetchAllParticipating();
-            const list = Object.values(groups);
+            groupMeta = await sock.groupMetadata(groupId);
+        } catch {
+            return await sock.sendMessage(chatId, {
+                text: '❌ *Bot is no longer in that group.*\n\n*Group:* ' + groupName + '\n\nAsk someone inside for an invite link.',
+                ...channelInfo
+            }, { quoted: message });
+        }
 
-            // Match by number (1-based index) or name
-            let match = null;
-            const num = parseInt(query, 10);
-            if (!isNaN(num) && num >= 1 && num <= list.length) {
-                match = list[num - 1];
-            } else {
-                match = list.find(g => g.subject.toLowerCase().includes(query));
-            }
+        const botId = (sock.user?.id?.split(':')[0] || '') + '@s.whatsapp.net';
+        const botParticipant = groupMeta.participants?.find(p =>
+            p.id.split('@')[0] === botId.split('@')[0]
+        );
+        const isBotAdmin = botParticipant?.admin === 'admin' || botParticipant?.admin === 'superadmin';
 
-            if (!match) {
-                // Check recently-left groups as fallback
-                const leftGroups = loadLeftGroups();
-                const leftMatch = leftGroups.find(g =>
-                    g.name.toLowerCase().includes(query) ||
-                    (!isNaN(num) && leftGroups.indexOf(g) === num - 1)
-                );
-                if (leftMatch) {
-                    if (leftMatch.inviteCode) {
-                        const link = `https://chat.whatsapp.com/${leftMatch.inviteCode}`;
-                        return sock.sendMessage(chatId, {
-                            text: `🔗 *Rejoin Link (recently left)*\n\n*Group:* ${leftMatch.name}\n*Left:* ${new Date(leftMatch.leftAt).toLocaleString()}\n\n${link}\n\n_Tap the link to rejoin_`
-                        }, { quoted: message });
-                    }
-                    return sock.sendMessage(chatId, {
-                        text: `❌ Found *${leftMatch.name}* in recently-left list but no invite link was saved.\nAsk an admin for the link.`
+        // Check if owner is already back
+        const isOwnerInGroup = groupMeta.participants?.some(p =>
+            p.id.split('@')[0] === ownerJid.split('@')[0]
+        );
+        if (isOwnerInGroup) {
+            return await sock.sendMessage(chatId, {
+                text: '✅ *You are already in this group!*\n\n*Group:* ' + groupName,
+                ...channelInfo
+            }, { quoted: message });
+        }
+
+        // Bot is admin → add owner directly
+        if (isBotAdmin) {
+            try {
+                const result = await sock.groupParticipantsUpdate(groupId, [ownerJid], 'add');
+                const status = result?.[0]?.status;
+                if (status === '200') {
+                    try { fs.unlinkSync(dataPath); } catch {}
+                    return await sock.sendMessage(chatId, {
+                        text: '✅ *Rejoined successfully!*\n\n*Group:* ' + groupName + '\n\nWelcome back!',
+                        ...channelInfo
+                    }, { quoted: message });
+                } else if (status === '408') {
+                    return await sock.sendMessage(chatId, {
+                        text: '⚠️ *Invite sent!*\n\n*Group:* ' + groupName + '\n\nCheck your WhatsApp notifications and accept the invite.',
+                        ...channelInfo
                     }, { quoted: message });
                 }
-                return sock.sendMessage(chatId, {
-                    text: `❌ No group found matching *"${query}"*.\n\nUse _.rejoin_ (no args) to see all groups with their numbers.`
-                }, { quoted: message });
-            }
+                // 403 or other → fall through to invite link
+            } catch (_e) { /* fall through */ }
+        }
 
-            // Get fresh invite link
-            let inviteCode;
-            try {
-                inviteCode = await sock.groupInviteCode(match.id);
-            } catch (e) {
-                return sock.sendMessage(chatId, {
-                    text: `❌ Couldn't get invite link for *${match.subject}*.\n\nReason: ${e.message}\n_Bot may need to be an admin to generate links._`
-                }, { quoted: message });
-            }
-
-            const link = `https://chat.whatsapp.com/${inviteCode}`;
-            const participantCount = match.participants?.length || '?';
-            await sock.sendMessage(chatId, {
-                text: `🔗 *Group Invite Link*\n\n*Name:* ${match.subject}\n*Members:* ${participantCount}\n\n${link}\n\n_Tap the link above to rejoin the group._`
+        // Fallback: generate and send invite link
+        try {
+            const inviteCode = await sock.groupInviteCode(groupId);
+            const inviteLink = 'https://chat.whatsapp.com/' + inviteCode;
+            return await sock.sendMessage(chatId, {
+                text: '🔗 *Your rejoin link:*\n\n*Group:* ' + groupName + '\n\n' + inviteLink + '\n\n_Tap to rejoin. Do not share this link._',
+                ...channelInfo
             }, { quoted: message });
-
         } catch (e) {
-            await sock.sendMessage(chatId, {
-                text: `❌ Error: ${e.message}`
+            return await sock.sendMessage(chatId, {
+                text: '❌ *Could not generate link.*\n\n*Reason:* ' + e.message + '\n\nMake the bot an admin in the group for best results.',
+                ...channelInfo
             }, { quoted: message });
         }
     }
