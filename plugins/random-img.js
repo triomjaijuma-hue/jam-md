@@ -1,7 +1,7 @@
 export default {
     command: 'images',
     aliases: ['wallpics', 'pics'],
-    category: 'menu',
+    category: 'images',
     description: 'Send 3 random images for a given category',
     usage: '.images <category>',
     async handler(sock, message, args, context) {
