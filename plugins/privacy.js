@@ -1,7 +1,7 @@
 export default {
     command: 'privacy',
     aliases: ['setprivacy', 'pvcy', 'pri'],
-    category: 'menu',
+    category: 'owner',
     description: 'Manage all WhatsApp privacy settings, block/unblock users',
     usage: '.privacy — show menu',
     ownerOnly: true,
