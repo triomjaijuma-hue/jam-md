@@ -97,7 +97,7 @@ export async function handleVdownReply(sock, chatId, qualityNum, message, channe
 export default {
     command: 'vdown',
     aliases: ['viddown', 'ytres', 'ytquality', 'dlvideo'],
-    category: 'download',
+    category: 'music',
     description: 'Download YouTube video in your chosen resolution',
     usage: '.vdown <youtube link | search query>\nThen reply with 1-5 to pick quality',
 
