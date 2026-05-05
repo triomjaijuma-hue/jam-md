@@ -25,7 +25,7 @@ async function saveUserNotes(userId, notes) {
 export default {
     command: 'notes',
     aliases: ['note'],
-    category: 'menu',
+    category: 'utility',
     description: 'Store, view, and delete your personal notes',
     usage: '.notes <add|all|del|delall> [text|ID]',
     async handler(sock, message, args, context) {
