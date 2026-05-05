@@ -38,7 +38,7 @@ function convertText(text, style) {
 export default {
     command: 'stext',
     aliases: ['fancytext', 'textstyle', 'styletext'],
-    category: 'menu',
+    category: 'tools',
     description: 'Style text in different fancy Unicode formats',
     usage: '.stext <text>',
     async handler(sock, message, args, context) {
