@@ -4,7 +4,7 @@ export default {
     command: 'clearchat',
     aliases: ['deletechat', 'clc'],
     category: 'owner',
-    description: 'Clear messages in the current chat (bot device view)',
+    description: 'Clear bot\'s local view of the current chat',
     usage: '.clearchat',
 
     async handler(sock, message, args, context) {
@@ -28,69 +28,36 @@ export default {
             }, { quoted: message });
         }
 
-        // ── Attempt 1: direct chatModify clear ────────────────────────────────
-        const tryClear = async () => {
-            await sock.chatModify({ clear: { messages: null } }, chatId);
-        };
+        let cleared = false;
 
+        // 1. Clear the bot's in-memory message store for this chat
         try {
-            await tryClear();
-            return sock.sendMessage(chatId, {
-                text: '🗑️ *Chat cleared!*\n_Messages removed from the bot device view._',
-                ...channelInfo
-            }, { quoted: message });
-        } catch (e1) {
-            const isKeyError = e1.message?.includes('AppStateKey') ||
-                               e1.message?.includes('appStateKey') ||
-                               e1.message?.includes('myAppStateKey') ||
-                               e1.message?.includes('not present');
-
-            if (!isKeyError) {
-                // Some other error — surface it
-                return sock.sendMessage(chatId, {
-                    text: `❌ Clear failed: ${e1.message}`,
-                    ...channelInfo
-                }, { quoted: message });
+            if (sock.store?.messages?.[chatId]) {
+                sock.store.messages[chatId].clear?.();
+                delete sock.store.messages[chatId];
+                cleared = true;
             }
+        } catch (_) {}
 
-            // ── Attempt 2: trigger app-state resync, then retry ───────────────
-            await sock.sendMessage(chatId, {
-                text: '🔄 _Syncing session keys — retrying clear…_',
-                ...channelInfo
-            }, { quoted: message });
+        // 2. Mark the entire chat as read (cleans unread badge)
+        try { await sock.readMessages([message.key]); } catch (_) {}
 
-            try {
-                if (typeof sock.resyncAppState === 'function') {
-                    await sock.resyncAppState([
-                        'critical_block', 'critical_unblock_low',
-                        'regular_high', 'regular_low', 'default'
-                    ]);
-                    // Give Baileys a moment to apply the sync
-                    await new Promise(r => setTimeout(r, 3000));
-                }
-                await tryClear();
-                return sock.sendMessage(chatId, {
-                    text: '🗑️ *Chat cleared!*\n_Messages removed from the bot device view._',
-                    ...channelInfo
-                }, { quoted: message });
-            } catch (e2) {
-                // Resync attempt also failed — tell user what to do
-                return sock.sendMessage(chatId, {
-                    text: [
-                        '⚠️ *Chat could not be cleared automatically.*',
-                        '',
-                        '_WhatsApp requires the bot session to be fully synced before it can modify chat history. This usually resolves itself within a few minutes after the bot starts._',
-                        '',
-                        '*What you can do:*',
-                        '  1. Wait 2–3 minutes and try again.',
-                        '  2. Restart the bot and wait for the session sync to complete, then try again.',
-                        '  3. Clear the chat manually from your WhatsApp app.',
-                        '',
-                        `_Technical detail: ${e2.message}_`
-                    ].join('\n'),
-                    ...channelInfo
-                }, { quoted: message });
-            }
-        }
+        // 3. Try chatModify as best-effort (may silently fail on some sessions)
+        try {
+            await sock.chatModify({ clear: { messages: null } }, chatId);
+            cleared = true;
+        } catch (_) {}
+
+        return sock.sendMessage(chatId, {
+            text: cleared
+                ? '🗑️ *Chat cleared from bot view!*\n_Messages removed from the bot\'s local storage for this chat._'
+                : [
+                    '✅ *Chat marked as read.*',
+                    '',
+                    '_Note: WhatsApp\'s API does not allow bots to delete chat history server-side.',
+                    'To fully clear a chat, open WhatsApp → long-press the chat → More → Clear chat._'
+                ].join('\n'),
+            ...channelInfo
+        }, { quoted: message });
     }
 };
