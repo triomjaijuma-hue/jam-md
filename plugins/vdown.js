@@ -5,12 +5,15 @@ const DL_API = 'https://api.qasimdev.dpdns.org/api/loaderto/download';
 const API_KEY = 'xbps-install-Syu';
 
 // Available resolution options
+// NOTE: 'worst' for option 1 picks the truly smallest combined file.
+// Requesting '144' separately forces a video-only stream + full audio merge
+// which often produces a file LARGER than 360p or 480p.
 const RESOLUTIONS = [
-    { label: '144p  (Lowest)', format: '144' },
-    { label: '360p  (Low)',    format: '360' },
-    { label: '480p  (Medium)',  format: '480' },
-    { label: '720p  (HD)',     format: '720' },
-    { label: '1080p (Full HD)', format: '1080' }
+    { label: 'Smallest (≤360p)', format: 'worst' },
+    { label: '360p  (Low)',      format: '360' },
+    { label: '480p  (Medium)',   format: '480' },
+    { label: '720p  (HD)',       format: '720' },
+    { label: '1080p (Full HD)',  format: '1080' }
 ];
 
 // Pending video sessions waiting for quality selection
