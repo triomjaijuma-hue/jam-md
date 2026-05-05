@@ -81,7 +81,7 @@ async function fetchQuestion() {
         question: fb.q,
         correctAnswer: fb.correct,
         options,
-        category: 'General Knowledge',
+        category: 'games',
         difficulty: 'medium',
         isLocal: true
     };
