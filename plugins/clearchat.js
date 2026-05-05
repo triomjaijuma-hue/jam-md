@@ -4,7 +4,7 @@ export default {
     command: 'clearchat',
     aliases: ['deletechat', 'clc'],
     category: 'owner',
-    description: 'Clear all messages in the current chat',
+    description: 'Delete all messages in the current chat (bot\'s view)',
     usage: '.clearchat',
 
     async handler(sock, message, args, context) {
@@ -28,75 +28,59 @@ export default {
             }, { quoted: message });
         }
 
-        // Build lastMessages list from local store (Baileys requires this for clear to work)
-        const lastMessages = [];
+        // Collect all message keys from local store for this chat
+        const storedMsgs = [];
         try {
             const chatMsgs = sock.store?.messages?.[chatId];
-            if (chatMsgs?.array) {
-                for (const m of [...chatMsgs.array].slice(-50)) {
-                    if (m?.key?.id) {
-                        lastMessages.push({ key: m.key, messageTimestamp: m.messageTimestamp });
-                    }
+            if (Array.isArray(chatMsgs)) {
+                for (const m of chatMsgs) {
+                    if (m?.key?.id) storedMsgs.push(m.key);
                 }
             }
         } catch (_) {}
 
-        // Always include the triggering message as a reference point
-        if (!lastMessages.some(m => m.key.id === message.key.id)) {
-            lastMessages.push({ key: message.key, messageTimestamp: message.messageTimestamp });
+        // Always include the triggering .clearchat message itself
+        if (!storedMsgs.some(k => k.id === message.key.id)) {
+            storedMsgs.push(message.key);
         }
 
-        // Also wipe bot's in-memory store for this chat
+        if (storedMsgs.length === 0) {
+            // Nothing in store — wipe the store entry and mark read
+            try { await sock.readMessages([message.key]); } catch (_) {}
+            return sock.sendMessage(chatId, {
+                text: '✅ *Chat is already empty in bot memory.*\n_No messages were found to delete._',
+                ...channelInfo
+            }, { quoted: message });
+        }
+
+        // Delete every message individually — no app state keys needed
+        let deleted = 0;
+        let failed = 0;
+        for (const key of storedMsgs) {
+            try {
+                await sock.sendMessage(chatId, { delete: key });
+                deleted++;
+            } catch (_) {
+                failed++;
+            }
+        }
+
+        // Wipe the bot's local store for this chat
         try {
             if (sock.store?.messages?.[chatId]) {
-                sock.store.messages[chatId].clear?.();
                 delete sock.store.messages[chatId];
             }
         } catch (_) {}
 
-        // Mark chat as read
+        // Mark as read
         try { await sock.readMessages([message.key]); } catch (_) {}
 
-        // Call chatModify clear with lastMessages — this is what WhatsApp actually needs
-        try {
-            await sock.chatModify({
-                clear: { messages: null, keepStarred: false },
-                lastMessages
-            }, chatId);
-
-            return sock.sendMessage(chatId, {
-                text: '🗑️ *Chat cleared!*\n_All messages have been wiped from this chat._',
-                ...channelInfo
-            }, { quoted: message });
-        } catch (e) {
-            // Second attempt: use specific message keys from lastMessages
-            try {
-                const msgKeys = lastMessages.map(m => ({
-                    id: m.key.id,
-                    fromMe: m.key.fromMe || false,
-                    timestamp: Number(m.messageTimestamp || 0)
-                }));
-                await sock.chatModify({
-                    clear: { messages: msgKeys },
-                    lastMessages
-                }, chatId);
-
-                return sock.sendMessage(chatId, {
-                    text: '🗑️ *Chat cleared!*\n_Recent messages wiped from this chat._',
-                    ...channelInfo
-                }, { quoted: message });
-            } catch (e2) {
-                return sock.sendMessage(chatId, {
-                    text: [
-                        '⚠️ *Could not clear chat automatically.*',
-                        '',
-                        '_WhatsApp\'s API rejected the request: ' + e2.message + '_',
-                        '',
-                        'To fully clear, open WhatsApp → long-press this chat → *More* → *Clear chat*.'
-                    ].join('\n'),
-                    ...channelInfo
-                }, { quoted: message });
-            }
-        }
+        const total = storedMsgs.length;
+        return sock.sendMessage(chatId, {
+            text: deleted === total
+                ? `🗑️ *Chat cleared!*\n_${deleted} message${deleted !== 1 ? 's' : ''} deleted._`
+                : `🗑️ *Cleared ${deleted}/${total} messages.*\n_${failed} could not be deleted (may have already been removed)._`,
+            ...channelInfo
+        }, { quoted: message });
     }
 };
