@@ -7,7 +7,7 @@ const allTypes = [
 export default {
     command: 'ephoto',
     aliases: ['tmaker', 'textmaker'],
-    category: 'menu',
+    category: 'tools',
     description: 'Generate styled text with various effects',
     usage: '.ephoto <type> <text>',
     async handler(sock, message, args) {
