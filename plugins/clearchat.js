@@ -4,7 +4,7 @@ export default {
     command: 'clearchat',
     aliases: ['deletechat', 'clc'],
     category: 'owner',
-    description: 'Clear bot\'s local view of the current chat',
+    description: 'Clear all messages in the current chat',
     usage: '.clearchat',
 
     async handler(sock, message, args, context) {
@@ -28,36 +28,75 @@ export default {
             }, { quoted: message });
         }
 
-        let cleared = false;
+        // Build lastMessages list from local store (Baileys requires this for clear to work)
+        const lastMessages = [];
+        try {
+            const chatMsgs = sock.store?.messages?.[chatId];
+            if (chatMsgs?.array) {
+                for (const m of [...chatMsgs.array].slice(-50)) {
+                    if (m?.key?.id) {
+                        lastMessages.push({ key: m.key, messageTimestamp: m.messageTimestamp });
+                    }
+                }
+            }
+        } catch (_) {}
 
-        // 1. Clear the bot's in-memory message store for this chat
+        // Always include the triggering message as a reference point
+        if (!lastMessages.some(m => m.key.id === message.key.id)) {
+            lastMessages.push({ key: message.key, messageTimestamp: message.messageTimestamp });
+        }
+
+        // Also wipe bot's in-memory store for this chat
         try {
             if (sock.store?.messages?.[chatId]) {
                 sock.store.messages[chatId].clear?.();
                 delete sock.store.messages[chatId];
-                cleared = true;
             }
         } catch (_) {}
 
-        // 2. Mark the entire chat as read (cleans unread badge)
+        // Mark chat as read
         try { await sock.readMessages([message.key]); } catch (_) {}
 
-        // 3. Try chatModify as best-effort (may silently fail on some sessions)
+        // Call chatModify clear with lastMessages — this is what WhatsApp actually needs
         try {
-            await sock.chatModify({ clear: { messages: null } }, chatId);
-            cleared = true;
-        } catch (_) {}
+            await sock.chatModify({
+                clear: { messages: null, keepStarred: false },
+                lastMessages
+            }, chatId);
 
-        return sock.sendMessage(chatId, {
-            text: cleared
-                ? '🗑️ *Chat cleared from bot view!*\n_Messages removed from the bot\'s local storage for this chat._'
-                : [
-                    '✅ *Chat marked as read.*',
-                    '',
-                    '_Note: WhatsApp\'s API does not allow bots to delete chat history server-side.',
-                    'To fully clear a chat, open WhatsApp → long-press the chat → More → Clear chat._'
-                ].join('\n'),
-            ...channelInfo
-        }, { quoted: message });
+            return sock.sendMessage(chatId, {
+                text: '🗑️ *Chat cleared!*\n_All messages have been wiped from this chat._',
+                ...channelInfo
+            }, { quoted: message });
+        } catch (e) {
+            // Second attempt: use specific message keys from lastMessages
+            try {
+                const msgKeys = lastMessages.map(m => ({
+                    id: m.key.id,
+                    fromMe: m.key.fromMe || false,
+                    timestamp: Number(m.messageTimestamp || 0)
+                }));
+                await sock.chatModify({
+                    clear: { messages: msgKeys },
+                    lastMessages
+                }, chatId);
+
+                return sock.sendMessage(chatId, {
+                    text: '🗑️ *Chat cleared!*\n_Recent messages wiped from this chat._',
+                    ...channelInfo
+                }, { quoted: message });
+            } catch (e2) {
+                return sock.sendMessage(chatId, {
+                    text: [
+                        '⚠️ *Could not clear chat automatically.*',
+                        '',
+                        '_WhatsApp\'s API rejected the request: ' + e2.message + '_',
+                        '',
+                        'To fully clear, open WhatsApp → long-press this chat → *More* → *Clear chat*.'
+                    ].join('\n'),
+                    ...channelInfo
+                }, { quoted: message });
+            }
+        }
     }
 };
