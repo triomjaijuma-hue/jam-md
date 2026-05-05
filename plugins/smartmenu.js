@@ -7,26 +7,33 @@ const activeEmojis = ['✅', '🟢', '💚', '✔️', '☑️'];
 const disabledEmojis = ['❌', '🔴', '⛔', '🚫', '❎'];
 const fastEmojis = ['⚡', '🚀', '💨', '⏱️', '🔥'];
 const slowEmojis = ['🐢', '🐌', '⏳', '⌛', '🕐'];
+// Preferred display order for categories in the menu
+const CATEGORY_ORDER = [
+    'general', 'music', 'download', 'ai', 'stickers', 'tools',
+    'search', 'info', 'games', 'fun', 'group', 'admin', 'owner',
+    'stalk', 'images', 'quotes', 'utility', 'education', 'upload'
+];
+
 const categoryEmojis = {
-    general: ['📱', '🔧', '⚙️', '🛠️'],
-    owner: ['👑', '🔱', '💎', '🎖️'],
-    admin: ['🛡️', '⚔️', '🔐', '👮'],
-    group: ['👥', '👫', '🧑‍🤝‍🧑', '👨‍👩‍👧‍👦'],
-    download: ['📥', '⬇️', '💾', '📦'],
-    ai: ['🤖', '🧠', '💭', '🎯'],
-    search: ['🔍', '🔎', '🕵️', '📡'],
-    apks: ['📲', '📦', '💿', '🗂️'],
-    info: ['ℹ️', '📋', '📊', '📄'],
-    fun: ['🎮', '🎲', '🎰', '🎪'],
-    stalk: ['👀', '🔭', '🕵️', '🎯'],
-    games: ['🎮', '🕹️', '🎯', '🏆'],
-    images: ['🖼️', '📸', '🎨', '🌄'],
-    menu: ['📜', '📋', '📑', '📚'],
-    tools: ['🔨', '🔧', '⚡', '🛠️'],
-    stickers: ['🎭', '😀', '🎨', '🖼️'],
-    quotes: ['💬', '📖', '✍️', '💭'],
-    music: ['🎵', '🎶', '🎧', '🎤'],
-    utility: ['📂', '🔧', '⚙️', '🛠️']
+    general:   ['📱', '🔧', '⚙️', '🛠️'],
+    owner:     ['👑', '🔱', '💎', '🎖️'],
+    admin:     ['🛡️', '⚔️', '🔐', '👮'],
+    group:     ['👥', '👫', '🧑‍🤝‍🧑', '👨‍👩‍👧‍👦'],
+    download:  ['📥', '⬇️', '💾', '📦'],
+    ai:        ['🤖', '🧠', '💭', '🎯'],
+    search:    ['🔍', '🔎', '🕵️', '📡'],
+    info:      ['ℹ️', '📋', '📊', '📄'],
+    fun:       ['🎮', '🎲', '🎰', '🎪'],
+    stalk:     ['👀', '🔭', '🕵️', '🎯'],
+    games:     ['🎮', '🕹️', '🎯', '🏆'],
+    images:    ['🖼️', '📸', '🎨', '🌄'],
+    tools:     ['🔨', '🔧', '⚡', '🛠️'],
+    stickers:  ['🎭', '😀', '🎨', '🖼️'],
+    quotes:    ['💬', '📖', '✍️', '💭'],
+    music:     ['🎵', '🎶', '🎧', '🎤'],
+    utility:   ['📂', '🔧', '⚙️', '🛠️'],
+    education: ['📚', '🎓', '📝', '🏫'],
+    upload:    ['☁️', '📤', '🔗', '💿']
 };
 function getRandomEmoji(arr) {
     return arr[Math.floor(Math.random() * arr.length)];
@@ -57,7 +64,12 @@ export default {
         try {
             const imagePath = path.join(process.cwd(), 'assets/thumb.jpg');
             const thumbnail = fs.existsSync(imagePath) ? fs.readFileSync(imagePath) : null;
-            const categories = Array.from(CommandHandler.categories.keys());
+            const rawCategories = Array.from(CommandHandler.categories.keys());
+            // Sort categories by preferred order; any unknown ones go at the end alphabetically
+            const categories = [
+                ...CATEGORY_ORDER.filter(c => rawCategories.includes(c)),
+                ...rawCategories.filter(c => !CATEGORY_ORDER.includes(c)).sort()
+            ];
             const stats = CommandHandler.getDiagnostics();
             const menuEmoji = getRandomEmoji(menuEmojis);
             const activeEmoji = getRandomEmoji(activeEmojis);
