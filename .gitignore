@@ -25,6 +25,10 @@ baileys_store.db
 data/*.json
 !data/.gitkeep
 
+# npm lockfile — Wispbyte/Bun uses bun.lockb; committing package-lock.json
+# causes Bun's lockfile migration to fail and packages to install incorrectly.
+package-lock.json
+
 # Log files
 *.log
 npm-debug.log*
