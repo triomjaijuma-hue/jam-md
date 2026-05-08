@@ -3,7 +3,7 @@
   "version": "6.0.0",
   "description": "High performance multi-device WhatsApp bot",
   "type": "module",
-  "main": "start.js",
+  "main": "index.js",
   "directories": {
     "assets": "assets",
     "lib": "lib",
@@ -11,9 +11,9 @@
     "plugins": "plugins"
   },
   "scripts": {
-    "start": "node start.js",
-    "start:optimized": "node start.js",
-    "start:fresh": "node reset-data.js && node start.js",
+    "start": "node index.js",
+    "start:optimized": "node --max-old-space-size=512 --optimize-for-size --gc-interval=100 index.js",
+    "start:fresh": "node reset-data.js && node index.js",
     "dev": "nodemon --watch . --ext js --ignore node_modules --ignore data --ignore session --ignore temp index.js",
     "reset-data": "node reset-data.js",
     "reset-session": "node -e \"import('fs').then(f=>f.default.rmSync('./session',{recursive:true,force:true})).then(()=>console.log('Session cleared!'))\"",
@@ -50,7 +50,6 @@
     "api-qasim": "^3.2.10",
     "awesome-phonenumber": "^5.9.0",
     "axios": "^1.8.4",
-    "better-sqlite3": "^12.5.0",
     "chalk": "^5.6.2",
     "cheerio": "^1.2.0",
     "dotenv": "^16.4.5",
@@ -85,5 +84,14 @@
   "overrides": {
     "minimatch": "^10.2.1",
     "yargs-parser": "^21.1.1"
-  }
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^12.5.0"
+  },
+  "trustedDependencies": [
+    "better-sqlite3",
+    "sharp",
+    "mumaker",
+    "gspeak"
+  ]
 }
