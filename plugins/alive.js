@@ -41,7 +41,7 @@ export default {
                 `*Owner:* ${config.botOwner}\n` +
                 `*Version:* ${config.version}\n` +
                 `*Uptime:* ${uptimeText}\n` +
-                `*RAM Usage:* ${usedMem} MB / ${totalMem} MB\n` +
+                `*RAM Usage:* ${usedMem} MB\n` +
                 `*CPU Load:* ${cpuLoad}\n` +
                 `*Platform:* ${platform} (${arch})\n` +
                 `*Node.js:* ${nodeVersion}\n`;
