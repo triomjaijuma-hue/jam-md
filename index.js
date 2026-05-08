@@ -23,6 +23,7 @@ import { autoBackupSession } from './lib/sessionBackup.js';
 import { server, PORT, setSocket, setPairingCode, startKeepAlive } from './lib/server.js';
 import { printLog } from './lib/print.js';
 import { writeErrorLog } from './lib/logger.js';
+import { getBackoffDelay, recordRestart, startMemoryWatchdog } from './lib/guardian.js';
 import { handleMessages, handleGroupParticipantUpdate, handleStatus, handleCall } from './lib/messageHandler.js';
 import commandHandler from './lib/commandHandler.js';
 store.readFromFile();
@@ -33,13 +34,8 @@ setInterval(() => {
         console.log('🧹 Garbage collection completed');
     }
 }, 60000);
-setInterval(() => {
-    const used = process.memoryUsage().rss / 1024 / 1024;
-    if (used > 900) {
-        printLog('warning', 'RAM too high (>900MB), restarting bot...');
-        process.exit(1);
-    }
-}, 30000);
+// Memory watchdog delegated to guardian (checks every 60s, warns at 600MB, exits at 900MB)
+startMemoryWatchdog({ warnMB: 600, exitMB: 900, log: printLog });
 const phoneNumber = config.pairingNumber || config.ownerNumber || "256765309986";
 const DATA_DEFAULTS = {
     'owner.json': [],
@@ -180,9 +176,9 @@ async function initializeSession() {
     }
 }
 
-// ─── Connection health watchdog ───────────────────────────────────────────────
-// Tracks last time the bot was confirmed connected to WhatsApp.
-// If offline for 10+ minutes, forces a reconnect attempt.
+// ─── Connection health watchdog (guardian-powered) ──────────────────────────
+// If the bot has been offline for more than 3 minutes, force a reconnect.
+// Uses guardian's exponential backoff so rapid failures don't loop endlessly.
 let _lastConnectedTime = Date.now();
 let _isWatchdogReconnecting = false;
 
@@ -192,18 +188,23 @@ function markConnected() {
 }
 
 setInterval(() => {
-    // Don't run until we've had 2 minutes to start up
-    if (process.uptime() < 120) return;
+    if (process.uptime() < 90) return; // wait 90s for initial startup
     const offlineMs = Date.now() - _lastConnectedTime;
-    if (offlineMs > 10 * 60 * 1000 && !_isWatchdogReconnecting) {
+    if (offlineMs > 3 * 60 * 1000 && !_isWatchdogReconnecting) {
         _isWatchdogReconnecting = true;
-        printLog('warning', `[watchdog] Bot offline for ${Math.round(offlineMs / 60000)}min, forcing reconnect...`);
-        startJamBot().catch(e => {
-            printLog('error', `[watchdog] Reconnect failed: ${e.message}`);
-            _isWatchdogReconnecting = false;
-        });
+        printLog('warning', `[watchdog] Offline ${Math.round(offlineMs / 60000)}min — forcing reconnect (backoff: ${getBackoffDelay() / 1000}s)`);
+        const delay = getBackoffDelay();
+        recordRestart();
+        setTimeout(() => {
+            startJamBot().then(() => {
+                _isWatchdogReconnecting = false;
+            }).catch(e => {
+                printLog('error', `[watchdog] Reconnect failed: ${e.message}`);
+                _isWatchdogReconnecting = false;
+            });
+        }, delay);
     }
-}, 60 * 1000);
+}, 30 * 1000); // check every 30 seconds
 
 server.listen(PORT, () => {
     printLog('success', `Server listening on port ${PORT}`);
@@ -531,8 +532,10 @@ async function startJamBot() {
                     return;
                 }
                 if (shouldReconnect) {
-                    printLog('connection', 'Reconnecting in 5 seconds...');
-                    await delay(5000);
+                    const backoff = getBackoffDelay();
+                    recordRestart();
+                    printLog('connection', `Reconnecting in ${backoff / 1000}s... (attempt #${_restartHistory?.length || '?'})`);
+                    await delay(backoff);
                     startJamBot();
                 }
             }
@@ -651,16 +654,20 @@ folders.forEach(folder => {
 });
 // Error handlers — log but keep the process alive; Bun/Wispbyte will restart on fatal exit
 process.on('uncaughtException', (err) => {
-    printLog('error', `Uncaught Exception: ${err.message}`);
+    // Ignore known harmless Baileys noise
+    const msg = err?.message || '';
+    if (msg.includes('Cannot read properties of undefined') && msg.includes('message')) return;
+    if (msg.includes('write EPIPE') || msg.includes('read ECONNRESET')) return;
+
+    printLog('error', `Uncaught Exception: ${msg}`);
     console.error(err.stack);
-    writeErrorLog({
-        type: 'uncaughtException',
-        error: err.message,
-        stack: err.stack,
-        timestamp: new Date().toISOString()
-    });
-    // Attempt a graceful bot restart instead of crashing the whole process
-    delay(3000).then(() => startJamBot()).catch(() => {});
+    writeErrorLog({ type: 'uncaughtException', error: msg, stack: err.stack, timestamp: new Date().toISOString() });
+
+    // Restart with backoff — guardian prevents rapid restart loops
+    const backoff = getBackoffDelay();
+    recordRestart();
+    printLog('warning', `[guardian] Recovering from crash in ${backoff / 1000}s...`);
+    setTimeout(() => startJamBot().catch(() => {}), backoff);
 });
 process.on('unhandledRejection', (err) => {
     if (!err) return;
