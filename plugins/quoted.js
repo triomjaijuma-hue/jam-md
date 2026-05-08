@@ -1,5 +1,21 @@
 import axios from 'axios';
-import { Sticker, StickerTypes } from 'stickers-formatter';
+
+// Lazy-loaded to prevent bot crash if stickers-formatter fails to load
+let _Sticker = null;
+let _StickerTypes = null;
+
+async function getStickerLib() {
+    if (_Sticker) return { Sticker: _Sticker, StickerTypes: _StickerTypes };
+    try {
+        const mod = await import('stickers-formatter');
+        _Sticker = mod.Sticker;
+        _StickerTypes = mod.StickerTypes;
+        return { Sticker: _Sticker, StickerTypes: _StickerTypes };
+    } catch (err) {
+        throw new Error(`stickers-formatter unavailable: ${err.message}`);
+    }
+}
+
 export default {
     command: 'quoted',
     aliases: ['q', 'fakereply'],
@@ -32,12 +48,11 @@ export default {
             ? userPfp.value
             : 'https://i.ibb.co/9HY4wjz/a4c0b1af253197d4837ff6760d5b81c0.jpg';
         const contactValue = contactInfo.status === 'fulfilled' ? contactInfo.value : null;
-        // Try multiple sources for name
         const storeContact = sock.store?.contacts?.[who];
         const userName = storeContact?.name
             || storeContact?.notify
             || contactValue?.[0]?.notify
-            || (who.includes('@s.whatsapp.net') ? `+${ who.replace('@s.whatsapp.net', '')}` : 'User');
+            || (who.includes('@s.whatsapp.net') ? `+${who.replace('@s.whatsapp.net', '')}` : 'User');
         try {
             const res = await axios.post('https://bot.lyo.su/quote/generate', {
                 type: 'quote',
@@ -47,12 +62,12 @@ export default {
                 height: 200,
                 scale: 2,
                 messages: [{
-                        entities: [],
-                        avatar: true,
-                        from: { id: 1, name: userName, photo: { url: pfp } },
-                        text,
-                        replyMessage: {}
-                    }]
+                    entities: [],
+                    avatar: true,
+                    from: { id: 1, name: userName, photo: { url: pfp } },
+                    text,
+                    replyMessage: {}
+                }]
             }, {
                 headers: { 'Content-Type': 'application/json' },
                 timeout: 30000
@@ -61,6 +76,7 @@ export default {
                 throw new Error('Invalid API response');
             const bufferImage = Buffer.from(res.data.result.image, 'base64');
             try {
+                const { Sticker, StickerTypes } = await getStickerLib();
                 const stickerBuffer = await new Sticker(bufferImage, {
                     pack: 'JAM-MD',
                     author: userName,
@@ -70,12 +86,10 @@ export default {
                     background: '#00000000'
                 }).toBuffer();
                 await sock.sendMessage(chatId, { sticker: stickerBuffer }, { quoted: message });
-            }
-            catch {
+            } catch {
                 await sock.sendMessage(chatId, { image: bufferImage, caption: '📝 Quote image (sticker conversion failed)' }, { quoted: message });
             }
-        }
-        catch (err) {
+        } catch (err) {
             console.error('Quote plugin error:', err);
             const msg = err.message.includes('timeout')
                 ? 'Request timed out.'
