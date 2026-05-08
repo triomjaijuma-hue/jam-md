@@ -20,7 +20,7 @@ import config from './config.js';
 import store from './lib/lightweight_store.js';
 import SaveCreds from './lib/session.js';
 import { autoBackupSession } from './lib/sessionBackup.js';
-import { server, PORT, setSocket, setPairingCode } from './lib/server.js';
+import { server, PORT, setSocket, setPairingCode, startKeepAlive } from './lib/server.js';
 import { printLog } from './lib/print.js';
 import { writeErrorLog } from './lib/logger.js';
 import { handleMessages, handleGroupParticipantUpdate, handleStatus, handleCall } from './lib/messageHandler.js';
@@ -41,7 +41,6 @@ setInterval(() => {
     }
 }, 30000);
 const phoneNumber = config.pairingNumber || config.ownerNumber || "256765309986";
-// Auto-create data directory and default files on startup
 const DATA_DEFAULTS = {
     'owner.json': [],
     'banned.json': [],
@@ -134,7 +133,7 @@ function hasValidSession() {
                 try {
                     rmSync(path.join(__dirname, 'session'), { recursive: true, force: true });
                 }
-                catch (_e) { /* ignore */ }
+                catch (_e) { }
                 return false;
             }
             printLog('success', 'Valid and registered session credentials found');
@@ -180,9 +179,45 @@ async function initializeSession() {
         return false;
     }
 }
+
+// ─── Connection health watchdog ───────────────────────────────────────────────
+// Tracks last time the bot was confirmed connected to WhatsApp.
+// If offline for 10+ minutes, forces a reconnect attempt.
+let _lastConnectedTime = Date.now();
+let _isWatchdogReconnecting = false;
+
+function markConnected() {
+    _lastConnectedTime = Date.now();
+    _isWatchdogReconnecting = false;
+}
+
+setInterval(() => {
+    // Don't run until we've had 2 minutes to start up
+    if (process.uptime() < 120) return;
+    const offlineMs = Date.now() - _lastConnectedTime;
+    if (offlineMs > 10 * 60 * 1000 && !_isWatchdogReconnecting) {
+        _isWatchdogReconnecting = true;
+        printLog('warning', `[watchdog] Bot offline for ${Math.round(offlineMs / 60000)}min, forcing reconnect...`);
+        startJamBot().catch(e => {
+            printLog('error', `[watchdog] Reconnect failed: ${e.message}`);
+            _isWatchdogReconnecting = false;
+        });
+    }
+}, 60 * 1000);
+
 server.listen(PORT, () => {
     printLog('success', `Server listening on port ${PORT}`);
+    // Determine public URL for self-ping keep-alive
+    const appUrl =
+        process.env.APP_URL ||
+        process.env.WISPBYTE_URL ||
+        process.env.RENDER_EXTERNAL_URL ||
+        process.env.RAILWAY_PUBLIC_DOMAIN ||
+        process.env.RAILWAY_STATIC_URL ||
+        `http://localhost:${PORT}`;
+    startKeepAlive(appUrl);
 });
+
 async function startJamBot() {
     try {
         const { version } = await fetchLatestBaileysVersion();
@@ -218,7 +253,7 @@ async function startJamBot() {
             keepAliveIntervalMs: 10000,
         });
         JamBot.store = store;
-        setSocket(JamBot); // expose socket to web /pair endpoint immediately
+        setSocket(JamBot);
         const originalSendPresenceUpdate = JamBot.sendPresenceUpdate;
         const originalReadMessages = JamBot.readMessages;
         const originalSendReceipt = JamBot.sendReceipt;
@@ -304,7 +339,7 @@ async function startJamBot() {
                 return jid;
             if (/:\d+@/gi.test(jid)) {
                 const decode = jidDecode(jid) || {};
-                return decode.user && decode.server && `${decode.user }@${ decode.server}` || jid;
+                return decode.user && decode.server && `${decode.user}@${decode.server}` || jid;
             }
             else
                 return jid;
@@ -325,7 +360,7 @@ async function startJamBot() {
                     v = store.contacts[id] || {};
                     if (!(v.name || v.subject))
                         v = JamBot.groupMetadata(id) || {};
-                    resolve(v.name || v.subject || PhoneNumber(`+${ id.replace('@s.whatsapp.net', '')}`).number?.international);
+                    resolve(v.name || v.subject || PhoneNumber(`+${id.replace('@s.whatsapp.net', '')}`).number?.international);
                 });
             else
                 v = id === '0@s.whatsapp.net' ? {
@@ -334,7 +369,7 @@ async function startJamBot() {
                 } : id === JamBot.decodeJid(JamBot.user.id) ?
                     JamBot.user :
                     (store.contacts[id] || {});
-            return (withoutContact ? '' : v.name) || v.subject || v.verifiedName || PhoneNumber(`+${ jid.replace('@s.whatsapp.net', '')}`).number?.international;
+            return (withoutContact ? '' : v.name) || v.subject || v.verifiedName || PhoneNumber(`+${jid.replace('@s.whatsapp.net', '')}`).number?.international;
         };
         JamBot.public = true;
         JamBot.serializeM = (m) => smsg(JamBot, m, store);
@@ -353,7 +388,6 @@ async function startJamBot() {
                 phoneNumberInput = await question(chalk.bgBlack(chalk.greenBright(`Please type your WhatsApp number 😍\nFormat: 256765309986 (without + or spaces) : `)));
             }
             else {
-                // No PAIRING_NUMBER set — keep server alive and guide user to web UI
                 const domain = process.env.APP_URL ||
                     process.env.RAILWAY_PUBLIC_DOMAIN ||
                     process.env.RAILWAY_STATIC_URL ||
@@ -364,17 +398,15 @@ async function startJamBot() {
                 printLog('info', `No PAIRING_NUMBER set. Open ${pairUrl} in your browser to pair.`);
                 printLog('info', `Or set the PAIRING_NUMBER environment variable and restart.`);
                 if (rl && !rlClosed) { rl.close(); rl = null; }
-                // Retry every 30 seconds in case PAIRING_NUMBER gets set via env reload
                 setTimeout(() => startJamBot(), 30000);
                 return;
             }
             phoneNumberInput = phoneNumberInput.replace(/[^0-9]/g, '');
-            const pn = PhoneNumber(`+${ phoneNumberInput}`);
+            const pn = PhoneNumber(`+${phoneNumberInput}`);
             if (!pn.valid) {
                 printLog('error', `Invalid phone number format: "${phoneNumberInput}". Must be digits only, e.g. 2348012345678`);
                 if (rl && !rlClosed)
                     rl.close();
-                // Don't kill the process — fall back to web UI pairing
                 const domain = process.env.APP_URL ||
                     process.env.RAILWAY_PUBLIC_DOMAIN ||
                     process.env.RAILWAY_STATIC_URL ||
@@ -408,7 +440,7 @@ async function startJamBot() {
                         try {
                             rmSync('./session', { recursive: true, force: true });
                         }
-                        catch (_e) { /* ignore */ }
+                        catch (_e) { }
                         await delay(3000);
                         startJamBot();
                     }
@@ -445,6 +477,7 @@ async function startJamBot() {
                 }
             }
             if (connection === "open") {
+                markConnected();
                 printLog('success', 'Bot connected successfully!');
                 setSocket(JamBot);
                 autoBackupSession().catch(e => printLog('warning', 'Session backup: ' + e.message));
@@ -461,9 +494,9 @@ async function startJamBot() {
                 if (ghostMode && ghostMode.enabled) {
                     printLog('info', '👻 STEALTH MODE ACTIVE');
                 }
-                printLog('success', `Connected to => ${ JSON.stringify(JamBot.user, null, 2)}`);
+                printLog('success', `Connected to => ${JSON.stringify(JamBot.user, null, 2)}`);
                 try {
-                    const botNumber = `${JamBot.user.id.split(':')[0] }@s.whatsapp.net`;
+                    const botNumber = `${JamBot.user.id.split(':')[0]}@s.whatsapp.net`;
                     const ghostStatus = (ghostMode && ghostMode.enabled) ? '\n👻 Stealth Mode: ACTIVE' : '';
                     await JamBot.sendMessage(botNumber, {
                         text: `🤖 Bot Connected Successfully!\n\n⏰ Time: ${ugaNow()} (EAT)\n✅ Status: Online and Ready!${ghostStatus}\n\n`
@@ -492,7 +525,7 @@ async function startJamBot() {
                     try {
                         rmSync('./session', { recursive: true, force: true });
                     }
-                    catch (_e) { /* ignore */ }
+                    catch (_e) { }
                     await delay(3000);
                     startJamBot();
                     return;
@@ -616,7 +649,7 @@ folders.forEach(folder => {
         }
     });
 });
-// Error handlers
+// Error handlers — log but keep the process alive; Bun/Wispbyte will restart on fatal exit
 process.on('uncaughtException', (err) => {
     printLog('error', `Uncaught Exception: ${err.message}`);
     console.error(err.stack);
@@ -626,14 +659,19 @@ process.on('uncaughtException', (err) => {
         stack: err.stack,
         timestamp: new Date().toISOString()
     });
+    // Attempt a graceful bot restart instead of crashing the whole process
+    delay(3000).then(() => startJamBot()).catch(() => {});
 });
 process.on('unhandledRejection', (err) => {
-    printLog('error', `Unhandled Rejection: ${err.message}`);
-    console.error(err.stack);
+    if (!err) return;
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    printLog('error', `Unhandled Rejection: ${message}`);
+    if (stack) console.error(stack);
     writeErrorLog({
         type: 'unhandledRejection',
-        error: err.message,
-        stack: err.stack,
+        error: message,
+        stack,
         timestamp: new Date().toISOString()
     });
 });
