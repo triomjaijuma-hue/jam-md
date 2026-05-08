@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["nodejs_22", "python3", "gcc", "gnumake", "ffmpeg", "git", "curl", "wget", "unzip"]
+
+[phases.install]
+cmds = ["npm install --no-audit --no-fund --legacy-peer-deps"]
+
+[phases.build]
+cmds = ["mkdir -p data temp session"]
+
+[start]
+cmd = "node --max-old-space-size=512 --optimize-for-size --expose-gc index.js"
