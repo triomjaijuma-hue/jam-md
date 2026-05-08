@@ -25,6 +25,34 @@ export default {
         const { chatId, channelInfo, config } = context;
         const arg = (args || []).join(' ').trim();
 
+        // ── Helper: check if bot is admin in a group ──────────────────────────
+        async function getBotAdminStatus(groupId) {
+            try {
+                const meta = await sock.groupMetadata(groupId);
+                const botNum = (sock.user?.id || '').split(':')[0].split('@')[0];
+                const botP = meta.participants?.find(p =>
+                    p.id.split('@')[0].split(':')[0] === botNum
+                );
+                return {
+                    meta,
+                    isAdmin: botP?.admin === 'admin' || botP?.admin === 'superadmin',
+                    inGroup: !!botP
+                };
+            } catch {
+                return { meta: null, isAdmin: false, inGroup: false };
+            }
+        }
+
+        // ── Helper: try getting invite code (admin only) ───────────────────────
+        async function tryGetInviteLink(groupId) {
+            try {
+                const code = await sock.groupInviteCode(groupId);
+                return code ? 'https://chat.whatsapp.com/' + code : null;
+            } catch {
+                return null;
+            }
+        }
+
         // ── MODE 1: invite link passed directly ───────────────────────────────
         const linkMatch = arg.match(/chat\.whatsapp\.com\/([A-Za-z0-9_-]+)/);
         if (linkMatch) {
@@ -41,7 +69,7 @@ export default {
                 }, { quoted: message });
             } catch (e) {
                 return await sock.sendMessage(chatId, {
-                    text: '❌ *Could not join via that link.*\n\n*Reason:* ' + e.message + '\n\n_The link may be expired or revoked._',
+                    text: '❌ *Could not join via that link.*\n\n*Reason:* ' + e.message + '\n\n_The link may be expired or revoked. Ask a group member for a fresh link._',
                     ...channelInfo
                 }, { quoted: message });
             }
@@ -54,9 +82,10 @@ export default {
                 text: [
                     '❌ *No group recorded yet.*',
                     '',
-                    'Two ways to rejoin:',
-                    '1️⃣  Leave a group while the bot is online — it will remember automatically.',
-                    '2️⃣  Paste the group invite link: *.rejoin https://chat.whatsapp.com/XXXX*'
+                    'Two ways to rejoin a group:',
+                    '1️⃣  Leave a group while the bot is online — it records it automatically.',
+                    '2️⃣  Paste the invite link:',
+                    '   *.rejoin https://chat.whatsapp.com/XXXX*'
                 ].join('\n'),
                 ...channelInfo
             }, { quoted: message });
@@ -66,7 +95,7 @@ export default {
         try { record = JSON.parse(fs.readFileSync(dataPath, 'utf-8')); }
         catch {
             return await sock.sendMessage(chatId, {
-                text: '❌ *Failed to read saved group data.*',
+                text: '❌ *Failed to read saved group data. The file may be corrupted.*\n\nTry: *.rejoin https://chat.whatsapp.com/XXXX*',
                 ...channelInfo
             }, { quoted: message });
         }
@@ -81,25 +110,27 @@ export default {
             ...channelInfo
         }, { quoted: message });
 
-        // Check if bot is still in the group
-        let groupMeta;
-        try {
-            groupMeta = await sock.groupMetadata(groupId);
-        } catch {
+        // Check if bot is still in the group and get admin status
+        const { meta: groupMeta, isAdmin: isBotAdmin, inGroup: isBotInGroup } = await getBotAdminStatus(groupId);
+
+        if (!isBotInGroup) {
+            // Bot was also removed — can't do anything from inside
             return await sock.sendMessage(chatId, {
-                text: '❌ *Bot is no longer in that group or the group no longer exists.*\n\n*Group:* ' + groupName + '\n\n_Ask someone inside for an invite link, then use:_\n*.rejoin https://chat.whatsapp.com/XXXX*',
+                text: [
+                    '❌ *Bot is no longer in that group.*',
+                    '',
+                    '*Group:* ' + groupName,
+                    '',
+                    'Since the bot was removed too, it cannot generate a link.',
+                    'Ask someone still in the group to send you an invite link, then use:',
+                    '*.rejoin https://chat.whatsapp.com/XXXX*'
+                ].join('\n'),
                 ...channelInfo
             }, { quoted: message });
         }
 
-        const botNumber = (sock.user?.id || '').split(':')[0].split('@')[0];
-        const botParticipant = groupMeta.participants?.find(p =>
-            p.id.split('@')[0].split(':')[0] === botNumber
-        );
-        const isBotAdmin = botParticipant?.admin === 'admin' || botParticipant?.admin === 'superadmin';
-
-        // Check if owner is already back
-        const isOwnerInGroup = groupMeta.participants?.some(p =>
+        // Check if owner is already back in the group
+        const isOwnerInGroup = groupMeta?.participants?.some(p =>
             p.id.split('@')[0].split(':')[0] === ownerNumber
         );
         if (isOwnerInGroup) {
@@ -109,40 +140,70 @@ export default {
             }, { quoted: message });
         }
 
-        // Bot is admin → add owner directly
+        // ── Try 1: Bot is admin → add owner directly ──────────────────────────
         if (isBotAdmin) {
             try {
                 const result = await sock.groupParticipantsUpdate(groupId, [ownerJid], 'add');
                 const status = String(result?.[0]?.status || '');
+
                 if (status === '200') {
                     try { fs.unlinkSync(dataPath); } catch {}
                     return await sock.sendMessage(chatId, {
                         text: '✅ *Rejoined successfully!*\n\n*Group:* ' + groupName + '\n\nWelcome back!',
                         ...channelInfo
                     }, { quoted: message });
-                } else if (status === '408') {
+                }
+
+                if (status === '408') {
+                    // Invite was sent — notify owner
                     return await sock.sendMessage(chatId, {
-                        text: '⚠️ *Invite sent!*\n\n*Group:* ' + groupName + '\n\nCheck your WhatsApp notifications and accept the invite.',
+                        text: '📨 *Invite sent to your number!*\n\n*Group:* ' + groupName + '\n\nCheck your WhatsApp notifications and accept the group invite.',
                         ...channelInfo
                     }, { quoted: message });
                 }
-                // status 403 = privacy blocked → fall through to invite link
-            } catch (_) { /* fall through to invite link */ }
+
+                if (status === '403') {
+                    // Privacy settings block direct add — fall through to invite link
+                }
+                // Any other status — fall through to invite link
+            } catch (_addErr) {
+                // Adding failed — fall through to invite link
+            }
         }
 
-        // Fallback: generate and send invite link
-        try {
-            const inviteCode = await sock.groupInviteCode(groupId);
-            const inviteLink = 'https://chat.whatsapp.com/' + inviteCode;
+        // ── Try 2: Generate invite link (works if bot is admin or group allows it) ──
+        const inviteLink = await tryGetInviteLink(groupId);
+        if (inviteLink) {
             return await sock.sendMessage(chatId, {
-                text: '🔗 *Your rejoin link:*\n\n*Group:* ' + groupName + '\n\n' + inviteLink + '\n\n_Tap to rejoin. Do not share this link._',
-                ...channelInfo
-            }, { quoted: message });
-        } catch (e) {
-            return await sock.sendMessage(chatId, {
-                text: '❌ *Could not generate link.*\n\n*Reason:* ' + e.message + '\n\nMake the bot an admin in the group for best results.',
+                text: [
+                    '🔗 *Your rejoin link:*',
+                    '',
+                    '*Group:* ' + groupName,
+                    '',
+                    inviteLink,
+                    '',
+                    '_Tap the link to rejoin. Do not share it with others._'
+                ].join('\n'),
                 ...channelInfo
             }, { quoted: message });
         }
+
+        // ── Try 3: Bot in group but not admin and can't get link ──────────────
+        return await sock.sendMessage(chatId, {
+            text: [
+                '⚠️ *Could not auto-rejoin.*',
+                '',
+                '*Group:* ' + groupName,
+                '*Bot admin:* ' + (isBotAdmin ? 'Yes' : 'No ← make bot admin for best results'),
+                '',
+                'To fix this:',
+                '1. Ask a group member to promote the bot to admin.',
+                '2. Then run *.rejoin* again.',
+                '',
+                'Or ask any group member to send you an invite link and use:',
+                '*.rejoin https://chat.whatsapp.com/XXXX*'
+            ].join('\n'),
+            ...channelInfo
+        }, { quoted: message });
     }
 };
