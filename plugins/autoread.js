@@ -33,6 +33,9 @@ async function saveConfig(config) {
     }
 }
 async function isAutoreadEnabled() {
+    // Hard override: set FORCE_DISABLE_AUTOREAD=true in your .env to always keep
+    // messages unread on your phone, regardless of the stored autoread setting.
+    if (process.env.FORCE_DISABLE_AUTOREAD === 'true') return false;
     try {
         const config = await initConfig();
         return config.enabled;
@@ -98,6 +101,8 @@ export async function handleAutoread(sock, message) {
                     id: message.key.id,
                     participant: message.key.participant
                 };
+                // Log every auto-read so the owner knows it's happening
+                console.log('[autoread] Marking message as read:', key.remoteJid?.split('@')[0], key.id?.slice(0, 8));
                 await sock.readMessages([key]);
                 return true;
             }
