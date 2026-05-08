@@ -1,1 +1,1 @@
-web: npm run start:optimized
+web: bun run index.js
