@@ -136,45 +136,44 @@ async function updateViaZip(zipOverride) {
 }
 
 /**
- * Restart strategy for Railway.app:
- * ─────────────────────────────────
- * Railway runs each service inside a Docker container.
- * When the process exits (any code), Railway's restart policy
- * restarts the SAME container — it does NOT redeploy, so:
- *   ✅ session/ directory is preserved  →  no new pairing code needed
- *   ✅ data/ directory is preserved     →  all settings kept
- *   ✅ Bot comes back online in ~5–10 s
+ * Restart strategy — works on Wispbyte, Railway, Render, VPS, and plain Docker.
  *
- * IMPORTANT: On Railway, set "Restart Policy" to "Always" in your
- * service settings so the container restarts after exit.
+ * Order of attempts:
+ *  1. pm2 (VPS with process manager)
+ *  2. Spawn a detached child and exit the parent — works on any platform
+ *     including Wispbyte containers without needing platform-specific env vars.
+ *  3. Exit with code 0 — most PaaS platforms (Wispbyte, Render, Railway)
+ *     restart the service when the process exits cleanly.
+ *
+ * Session and data directories are preserved across restarts because they
+ * live on the container's own filesystem (not rebuilt on restart).
  */
 async function restartProcess() {
-    const isRailway = !!(
-        process.env.RAILWAY_ENVIRONMENT ||
-        process.env.RAILWAY_SERVICE_ID ||
-        process.env.RAILWAY_PROJECT_ID
-    );
-    const isDocker = isRailway || fs.existsSync('/.dockerenv');
-
-    if (isDocker) {
-        // Railway/Docker: exit triggers container restart by Railway.
-        // Session and data are on the same container filesystem → preserved.
-        setTimeout(() => process.exit(1), 800);
-        return;
-    }
-    // VPS with pm2
+    // 1. pm2 — VPS setups
     try { await run('pm2 restart all'); return; } catch {}
-    // VPS without pm2 — spawn detached child
+
+    // 2. Spawn a detached child process and let the parent exit.
+    //    This is the most reliable method across all platforms (Wispbyte,
+    //    Railway, Render, VPS) because it does not depend on the host's
+    //    auto-restart policy — the new process is already running before
+    //    the old one exits.
     try {
         const { spawn } = await import('child_process');
         const child = spawn(process.execPath, process.argv.slice(1), {
-            detached: true, stdio: 'ignore', cwd: process.cwd(), env: process.env
+            detached: true,
+            stdio: 'ignore',
+            cwd: process.cwd(),
+            env: process.env
         });
         child.unref();
-        setTimeout(() => process.exit(0), 1500);
+        // Give the child ~2 s to start, then exit the parent cleanly
+        setTimeout(() => process.exit(0), 2000);
         return;
-    } catch {}
-    setTimeout(() => process.exit(0), 500);
+    } catch (_spawnErr) {}
+
+    // 3. Last resort: exit and rely on the platform's auto-restart policy.
+    //    Exit code 0 is recognised as "clean restart" by most PaaS platforms.
+    setTimeout(() => process.exit(0), 800);
 }
 
 export default {
