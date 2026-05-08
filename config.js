@@ -1,5 +1,4 @@
-// Load .env for local dev — optional on cloud platforms
-try { const { config } = await import('dotenv'); config(); } catch {}
+import 'dotenv/config';
 const _prefixes = process.env.PREFIXES ? process.env.PREFIXES.split(',') : ['.', '!', '/', '#'];
 const config = {
     // Bot Identity
