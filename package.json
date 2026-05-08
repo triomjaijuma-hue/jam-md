@@ -11,8 +11,8 @@
     "plugins": "plugins"
   },
   "scripts": {
-    "start": "bun run index.js",
-    "start:optimized": "bun run index.js",
+    "start": "node index.js",
+    "start:optimized": "node --max-old-space-size=512 --optimize-for-size --gc-interval=100 index.js",
     "start:fresh": "node reset-data.js && node index.js",
     "dev": "nodemon --watch . --ext js --ignore node_modules --ignore data --ignore session --ignore temp index.js",
     "reset-data": "node reset-data.js",
@@ -24,7 +24,7 @@
     "test:integration": "vitest run test/integration",
     "test:watch": "vitest",
     "audit": "npm audit --omit=dev",
-    "start:bun": "bun run index.js",
+    "start:bun": "node index.js",
     "preinstall": "node --version || true"
   },
   "keywords": [
