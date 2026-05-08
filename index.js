@@ -36,7 +36,7 @@ setInterval(() => {
 setInterval(() => {
     const used = process.memoryUsage().rss / 1024 / 1024;
     if (used > 900) {
-        printLog('warning', 'RAM too high (>400MB), restarting bot...');
+        printLog('warning', 'RAM too high (>900MB), restarting bot...');
         process.exit(1);
     }
 }, 30000);
@@ -353,20 +353,38 @@ async function startJamBot() {
                 phoneNumberInput = await question(chalk.bgBlack(chalk.greenBright(`Please type your WhatsApp number 😍\nFormat: 256765309986 (without + or spaces) : `)));
             }
             else {
-                // No PAIRING_NUMBER set — send to web UI instead of auto-pairing with a random number
-                const domain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL || `localhost:${PORT}`;
+                // No PAIRING_NUMBER set — keep server alive and guide user to web UI
+                const domain = process.env.APP_URL ||
+                    process.env.RAILWAY_PUBLIC_DOMAIN ||
+                    process.env.RAILWAY_STATIC_URL ||
+                    process.env.RENDER_EXTERNAL_URL ||
+                    process.env.WISPBYTE_URL ||
+                    `localhost:${PORT}`;
                 const pairUrl = domain.startsWith('http') ? `${domain}/pair` : `https://${domain}/pair`;
                 printLog('info', `No PAIRING_NUMBER set. Open ${pairUrl} in your browser to pair.`);
+                printLog('info', `Or set the PAIRING_NUMBER environment variable and restart.`);
                 if (rl && !rlClosed) { rl.close(); rl = null; }
+                // Retry every 30 seconds in case PAIRING_NUMBER gets set via env reload
+                setTimeout(() => startJamBot(), 30000);
                 return;
             }
             phoneNumberInput = phoneNumberInput.replace(/[^0-9]/g, '');
             const pn = PhoneNumber(`+${ phoneNumberInput}`);
             if (!pn.valid) {
-                printLog('error', 'Invalid phone number format');
+                printLog('error', `Invalid phone number format: "${phoneNumberInput}". Must be digits only, e.g. 2348012345678`);
                 if (rl && !rlClosed)
                     rl.close();
-                process.exit(1);
+                // Don't kill the process — fall back to web UI pairing
+                const domain = process.env.APP_URL ||
+                    process.env.RAILWAY_PUBLIC_DOMAIN ||
+                    process.env.RAILWAY_STATIC_URL ||
+                    process.env.RENDER_EXTERNAL_URL ||
+                    process.env.WISPBYTE_URL ||
+                    `localhost:${PORT}`;
+                const pairUrl = domain.startsWith('http') ? `${domain}/pair` : `https://${domain}/pair`;
+                printLog('info', `Falling back to web UI pairing. Open ${pairUrl} in your browser.`);
+                setTimeout(() => startJamBot(), 30000);
+                return;
             }
             const doPairing = async (num, attempt = 1) => {
                 try {
@@ -524,8 +542,17 @@ async function main() {
     });
 }
 main();
-// Session cleanup interval
+// Session cleanup interval — only remove truly temporary files, never Baileys auth files
 const sessionDir = path.join(process.cwd(), 'session');
+const SESSION_KEEP_PATTERNS = [
+    'creds.json',
+    'app-state-sync-key-',
+    'pre-key-',
+    'sender-key-',
+    'session-',
+    'identity-',
+    'sender-key-memory-',
+];
 setInterval(() => {
     if (!fs.existsSync(sessionDir))
         return;
@@ -533,11 +560,10 @@ setInterval(() => {
         if (err)
             return;
         for (const file of files) {
-            if (file === 'creds.json')
-                continue;
-            if (file.startsWith('app-state-sync-key-'))
-                continue;
-            fs.unlink(path.join(sessionDir, file), () => { });
+            const isKept = SESSION_KEEP_PATTERNS.some(p => file === p || file.startsWith(p));
+            if (!isKept) {
+                fs.unlink(path.join(sessionDir, file), () => { });
+            }
         }
     });
 }, 3 * 60 * 1000);
