@@ -24,7 +24,8 @@
     "test:integration": "vitest run test/integration",
     "test:watch": "vitest",
     "audit": "npm audit --omit=dev",
-    "start:bun": "bun run index.js"
+    "start:bun": "bun run index.js",
+    "preinstall": "node --version || true"
   },
   "keywords": [
     "whatsapp-bot",
@@ -84,7 +85,8 @@
   },
   "overrides": {
     "minimatch": "^10.2.1",
-    "yargs-parser": "^21.1.1"
+    "yargs-parser": "^21.1.1",
+    "@whiskeysockets/baileys": {}
   },
   "optionalDependencies": {
     "better-sqlite3": "^12.5.0"
@@ -94,5 +96,9 @@
     "sharp",
     "mumaker",
     "gspeak"
-  ]
+  ],
+  "engines": {
+    "node": ">=19.0.0",
+    "bun": ">=1.0.0"
+  }
 }
