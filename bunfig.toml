@@ -1,0 +1,4 @@
+[install]
+# Only run lifecycle scripts for packages explicitly listed as trustedDependencies
+# @whiskeysockets/baileys is NOT trusted so its engine-requirements.js won't run
+exact = false
