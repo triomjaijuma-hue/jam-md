@@ -208,15 +208,9 @@ setInterval(() => {
 
 server.listen(PORT, () => {
     printLog('success', `Server listening on port ${PORT}`);
-    // Determine public URL for self-ping keep-alive
-    const appUrl =
-        process.env.APP_URL ||
-        process.env.WISPBYTE_URL ||
-        process.env.RENDER_EXTERNAL_URL ||
-        process.env.RAILWAY_PUBLIC_DOMAIN ||
-        process.env.RAILWAY_STATIC_URL ||
-        `http://localhost:${PORT}`;
-    startKeepAlive(appUrl);
+    // Keep-alive: auto-detects public URL from incoming request Host headers.
+    // No env var needed — works on Wispbyte out of the box.
+    startKeepAlive();
 });
 
 async function startJamBot() {
