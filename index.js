@@ -1,4 +1,5 @@
-import 'dotenv/config';
+// Load .env for local dev — optional on cloud platforms
+try { const { config } = await import('dotenv'); config(); } catch {}
 
 import fs, { existsSync, mkdirSync, rmSync } from 'fs';
 import path, { dirname } from 'path';
