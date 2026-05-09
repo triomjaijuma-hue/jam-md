@@ -188,13 +188,13 @@ function markConnected() {
 }
 
 setInterval(() => {
-    if (process.uptime() < 90) return; // wait 90s for initial startup
+    if (process.uptime() < 90) return;
     const offlineMs = Date.now() - _lastConnectedTime;
     if (offlineMs > 3 * 60 * 1000 && !_isWatchdogReconnecting) {
         _isWatchdogReconnecting = true;
-        printLog('warning', `[watchdog] Offline ${Math.round(offlineMs / 60000)}min — forcing reconnect (backoff: ${getBackoffDelay() / 1000}s)`);
-        const delay = getBackoffDelay();
-        recordRestart();
+        printLog('warning', `[watchdog] Offline ${Math.round(offlineMs / 60000)}min — forcing reconnect...`);
+        // Use a short fixed delay here — do NOT use circuit breaker backoff.
+        // The circuit breaker is for crashes, not WhatsApp network drops.
         setTimeout(() => {
             startJamBot().then(() => {
                 _isWatchdogReconnecting = false;
@@ -202,9 +202,9 @@ setInterval(() => {
                 printLog('error', `[watchdog] Reconnect failed: ${e.message}`);
                 _isWatchdogReconnecting = false;
             });
-        }, delay);
+        }, 5000);
     }
-}, 30 * 1000); // check every 30 seconds
+}, 30 * 1000);
 
 server.listen(PORT, () => {
     printLog('success', `Server listening on port ${PORT}`);
@@ -515,23 +515,33 @@ async function startJamBot() {
             }
             if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut && statusCode !== 401;
-                if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                    try {
-                        rmSync('./session', { recursive: true, force: true });
-                    }
-                    catch (_e) { }
+
+                // ── Only delete session for a CONFIRMED WhatsApp logout. ────────────────
+                // A temporary 401 from a network outage must NOT wipe the session —
+                // that would force manual re-pairing every time the user's internet drops.
+                // DisconnectReason.loggedOut === 515 in newer Baileys (was 401 in old).
+                // We check BOTH to be safe, and also look at the error message.
+                const errMsg = lastDisconnect?.error?.message || '';
+                const isRealLogout = statusCode === DisconnectReason.loggedOut
+                    || errMsg.toLowerCase().includes('logged out')
+                    || errMsg.toLowerCase().includes('log out');
+
+                if (isRealLogout) {
+                    printLog('warning', '[reconnect] Confirmed logout by WhatsApp — clearing session and restarting pairing...');
+                    try { rmSync('./session', { recursive: true, force: true }); } catch {}
                     await delay(3000);
                     startJamBot();
                     return;
                 }
-                if (shouldReconnect) {
-                    const backoff = getBackoffDelay();
-                    recordRestart();
-                    printLog('connection', `Reconnecting in ${backoff / 1000}s... (attempt #${_restartHistory?.length || '?'})`);
-                    await delay(backoff);
-                    startJamBot();
-                }
+
+                // ── All other disconnects: reconnect with a simple short delay. ─────────
+                // DO NOT use the guardian circuit breaker here — it was designed for
+                // crashes, not WhatsApp network drops. Using it causes the bot to wait
+                // up to 2 minutes before reconnecting, making it appear permanently offline.
+                const reconnectDelaySec = Math.min(5 + Math.floor(Math.random() * 10), 15);
+                printLog('connection', `[reconnect] Disconnected (code ${statusCode}) — retrying in ${reconnectDelaySec}s...`);
+                await delay(reconnectDelaySec * 1000);
+                startJamBot();
             }
         });
         JamBot.ev.on('call', async (calls) => {
