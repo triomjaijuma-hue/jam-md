@@ -1,10 +1,12 @@
 import 'dotenv/config';
-// Bun WebSocket compatibility shim — must run before Baileys is imported
-import './lib/bun-ws-polyfill.js';
+
+// Force correct timezone at process level (Docker containers default to UTC)
+process.env.TZ = process.env.TIMEZONE || 'Africa/Kampala';
 
 import fs, { existsSync, mkdirSync, rmSync } from 'fs';
 import path, { dirname } from 'path';
 import chalk from 'chalk';
+import syntaxerror from 'syntax-error';
 import { parsePhoneNumber as PhoneNumber } from 'awesome-phonenumber';
 import readline from 'readline';
 import QRCode from 'qrcode';
@@ -12,7 +14,6 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 import { smsg } from './lib/myfunc.js';
-import { ugaNow } from './lib/ugaTime.js';
 import { compileAll } from './lib/compile.js';
 import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers, jidDecode, jidNormalizedUser, makeCacheableSignalKeyStore, delay } from '@whiskeysockets/baileys';
 import NodeCache from 'node-cache';
@@ -20,14 +21,12 @@ import pino from 'pino';
 import config from './config.js';
 import store from './lib/lightweight_store.js';
 import SaveCreds from './lib/session.js';
-import { autoBackupSession } from './lib/sessionBackup.js';
 import { server, PORT, setSocket, setPairingCode } from './lib/server.js';
-import { startKeepAlive, markConnected, markDisconnected } from './lib/keepalive.js';
 import { printLog } from './lib/print.js';
 import { writeErrorLog } from './lib/logger.js';
-import { getBackoffDelay, recordRestart, startMemoryWatchdog } from './lib/guardian.js';
 import { handleMessages, handleGroupParticipantUpdate, handleStatus, handleCall } from './lib/messageHandler.js';
 import commandHandler from './lib/commandHandler.js';
+import { startKeepAlive, markConnected, markDisconnected } from './lib/keepalive.js';
 store.readFromFile();
 setInterval(() => store.writeToFile(), config.storeWriteInterval || 10000);
 setInterval(() => {
@@ -36,9 +35,15 @@ setInterval(() => {
         console.log('🧹 Garbage collection completed');
     }
 }, 60000);
-// Memory watchdog delegated to guardian (checks every 60s, warns at 600MB, exits at 900MB)
-startMemoryWatchdog({ warnMB: 600, exitMB: 900, log: printLog });
+setInterval(() => {
+    const used = process.memoryUsage().rss / 1024 / 1024;
+    if (used > 900) {
+        printLog('warning', 'RAM too high (>400MB), restarting bot...');
+        process.exit(1);
+    }
+}, 30000);
 const phoneNumber = config.pairingNumber || config.ownerNumber || "256765309986";
+// Auto-create data directory and default files on startup
 const DATA_DEFAULTS = {
     'owner.json': [],
     'banned.json': [],
@@ -77,6 +82,13 @@ global.botname = config.botName || "JAM-MD";
 global.themeemoji = "•";
 const pairingCode = !process.argv.includes("--qr-code");
 const useMobile = process.argv.includes("--mobile");
+// Global pairing lock — prevents generating multiple codes in rapid succession
+let _pairingRequested = false;
+let _pairingRequestedAt = 0;
+const PAIRING_COOLDOWN = 70000; // 70 seconds — slightly longer than WhatsApp's 60s expiry
+let _reconnectAttempts = 0;
+const MAX_RECONNECT_DELAY = 120000; // 2 minutes cap
+let _savedPhoneNumber = config.pairingNumber || process.env.PAIRING_NUMBER || '';
 let rl = null;
 let rlClosed = false;
 if (process.stdin.isTTY && !config.pairingNumber) {
@@ -99,13 +111,9 @@ process.on('exit', () => {
         rl.close();
 });
 process.on('SIGINT', () => {
-    if (rl && !rlClosed) rl.close();
+    if (rl && !rlClosed)
+        rl.close();
     process.exit(0);
-});
-process.on('SIGTERM', () => {
-    // Do NOT exit on SIGTERM — this was causing Wispbyte to restart the bot on any signal.
-    // If Wispbyte really needs the process gone it sends SIGKILL (which can't be caught).
-    printLog('warning', '[system] SIGTERM received — staying alive (SIGKILL will force stop if needed)');
 });
 function ensureSessionDirectory() {
     const sessionPath = path.join(__dirname, 'session');
@@ -135,7 +143,7 @@ function hasValidSession() {
                 try {
                     rmSync(path.join(__dirname, 'session'), { recursive: true, force: true });
                 }
-                catch (_e) { }
+                catch (_e) { /* ignore */ }
                 return false;
             }
             printLog('success', 'Valid and registered session credentials found');
@@ -181,55 +189,10 @@ async function initializeSession() {
         return false;
     }
 }
-
-// ─── Bot instance mutex ─────────────────────────────────────────────────────
-// CRITICAL: Only ONE startJamBot() may run at a time.
-// Without this flag, the watchdog + disconnect handler + uncaughtException
-// all call startJamBot() simultaneously → multiple WhatsApp sockets
-// competing for the same session → CPU spikes to 60%+ → Wispbyte kills it.
-let _botStarting = false;
-
-// ─── Connection health watchdog (guardian-powered) ──────────────────────────
-// If the bot has been offline for more than 3 minutes, force a reconnect.
-// Uses guardian's exponential backoff so rapid failures don't loop endlessly.
-let _lastConnectedTime = Date.now();
-let _isWatchdogReconnecting = false;
-
-function markConnected() {
-    _lastConnectedTime = Date.now();
-    _isWatchdogReconnecting = false;
-}
-
-setInterval(() => {
-    if (process.uptime() < 90) return;
-    const offlineMs = Date.now() - _lastConnectedTime;
-    if (offlineMs > 3 * 60 * 1000 && !_isWatchdogReconnecting && !_botStarting) {
-        _isWatchdogReconnecting = true;
-        printLog('warning', `[watchdog] Offline ${Math.round(offlineMs / 60000)}min — forcing reconnect...`);
-        setTimeout(() => {
-            startJamBot().then(() => {
-                _isWatchdogReconnecting = false;
-            }).catch(e => {
-                printLog('error', `[watchdog] Reconnect failed: ${e.message}`);
-                _isWatchdogReconnecting = false;
-                _botStarting = false;
-            });
-        }, 5000);
-    }
-}, 30 * 1000);
-
-let _currentSocket = null; // always points to the live JamBot socket
 server.listen(PORT, () => {
     printLog('success', `Server listening on port ${PORT}`);
 });
-
-async function startJamBot() {
-    // Mutex: reject concurrent calls — only one instance allowed at a time
-    if (_botStarting) {
-        printLog('warning', '[mutex] startJamBot() skipped — already starting. Ignoring duplicate call.');
-        return;
-    }
-    _botStarting = true;
+async function startTrailerBot() {
     try {
         const { version } = await fetchLatestBaileysVersion();
         ensureSessionDirectory();
@@ -245,7 +208,7 @@ async function startJamBot() {
         const JamBot = makeWASocket({
             version,
             logger: pino({ level: 'silent' }),
-            browser: Browsers.macOS('Chrome'),
+            browser: Browsers.macOS('Safari'),
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
@@ -264,7 +227,7 @@ async function startJamBot() {
             keepAliveIntervalMs: 10000,
         });
         JamBot.store = store;
-        setSocket(JamBot);
+        setSocket(JamBot); _currentSocket = JamBot; // expose socket to web /pair endpoint immediately
         const originalSendPresenceUpdate = JamBot.sendPresenceUpdate;
         const originalReadMessages = JamBot.readMessages;
         const originalSendReceipt = JamBot.sendReceipt;
@@ -350,7 +313,7 @@ async function startJamBot() {
                 return jid;
             if (/:\d+@/gi.test(jid)) {
                 const decode = jidDecode(jid) || {};
-                return decode.user && decode.server && `${decode.user}@${decode.server}` || jid;
+                return decode.user && decode.server && `${decode.user }@${ decode.server}` || jid;
             }
             else
                 return jid;
@@ -371,7 +334,7 @@ async function startJamBot() {
                     v = store.contacts[id] || {};
                     if (!(v.name || v.subject))
                         v = JamBot.groupMetadata(id) || {};
-                    resolve(v.name || v.subject || PhoneNumber(`+${id.replace('@s.whatsapp.net', '')}`).number?.international);
+                    resolve(v.name || v.subject || PhoneNumber(`+${ id.replace('@s.whatsapp.net', '')}`).number?.international);
                 });
             else
                 v = id === '0@s.whatsapp.net' ? {
@@ -380,7 +343,7 @@ async function startJamBot() {
                 } : id === JamBot.decodeJid(JamBot.user.id) ?
                     JamBot.user :
                     (store.contacts[id] || {});
-            return (withoutContact ? '' : v.name) || v.subject || v.verifiedName || PhoneNumber(`+${jid.replace('@s.whatsapp.net', '')}`).number?.international;
+            return (withoutContact ? '' : v.name) || v.subject || v.verifiedName || PhoneNumber(`+${ jid.replace('@s.whatsapp.net', '')}`).number?.international;
         };
         JamBot.public = true;
         JamBot.serializeM = (m) => smsg(JamBot, m, store);
@@ -395,72 +358,66 @@ async function startJamBot() {
             else if (process.env.PAIRING_NUMBER) {
                 phoneNumberInput = process.env.PAIRING_NUMBER;
             }
+            else if (_savedPhoneNumber) {
+                phoneNumberInput = _savedPhoneNumber;
+            }
             else if (rl && !rlClosed) {
                 phoneNumberInput = await question(chalk.bgBlack(chalk.greenBright(`Please type your WhatsApp number 😍\nFormat: 256765309986 (without + or spaces) : `)));
+                if (phoneNumberInput) _savedPhoneNumber = phoneNumberInput.replace(/[^0-9]/g, '');
             }
             else {
-                const domain = process.env.APP_URL ||
-                    process.env.RAILWAY_PUBLIC_DOMAIN ||
-                    process.env.RAILWAY_STATIC_URL ||
-                    process.env.RENDER_EXTERNAL_URL ||
-                    process.env.WISPBYTE_URL ||
-                    `localhost:${PORT}`;
+                // No PAIRING_NUMBER set — web UI at /pair will handle pairing
+                const domain = `localhost:${PORT}`;
                 const pairUrl = domain.startsWith('http') ? `${domain}/pair` : `https://${domain}/pair`;
                 printLog('info', `No PAIRING_NUMBER set. Open ${pairUrl} in your browser to pair.`);
-                printLog('info', `Or set the PAIRING_NUMBER environment variable and restart.`);
                 if (rl && !rlClosed) { rl.close(); rl = null; }
-                setTimeout(() => startJamBot(), 30000);
-                return;
+                // Do NOT return — let event handlers below be registered so the socket stays alive
             }
-            phoneNumberInput = phoneNumberInput.replace(/[^0-9]/g, '');
-            const pn = PhoneNumber(`+${phoneNumberInput}`);
-            if (!pn.valid) {
-                printLog('error', `Invalid phone number format: "${phoneNumberInput}". Must be digits only, e.g. 2348012345678`);
-                if (rl && !rlClosed)
-                    rl.close();
-                const domain = process.env.APP_URL ||
-                    process.env.RAILWAY_PUBLIC_DOMAIN ||
-                    process.env.RAILWAY_STATIC_URL ||
-                    process.env.RENDER_EXTERNAL_URL ||
-                    process.env.WISPBYTE_URL ||
-                    `localhost:${PORT}`;
-                const pairUrl = domain.startsWith('http') ? `${domain}/pair` : `https://${domain}/pair`;
-                printLog('info', `Falling back to web UI pairing. Open ${pairUrl} in your browser.`);
-                setTimeout(() => startJamBot(), 30000);
-                return;
-            }
-            const doPairing = async (num, attempt = 1) => {
-                try {
-                    let code = await JamBot.requestPairingCode(num);
-                    code = code?.match(/.{1,4}/g)?.join("-") || code;
-                    setPairingCode(code);
-                    const domain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL || `localhost:${PORT}`;
-                    const pairUrl = domain.startsWith('http') ? `${domain}/pair` : `https://${domain}/pair`;
-                    printLog('info', `╔══════════════════════════════╗`);
-                    printLog('info', `║  PAIRING CODE: ${code}  ║`);
-                    printLog('info', `╚══════════════════════════════╝`);
-                    printLog('info', `Enter this code in WhatsApp → Linked Devices → Link with phone number`);
-                    printLog('info', `Or open ${pairUrl} in your browser to see it`);
-                    if (rl && !rlClosed) {
+            if (phoneNumberInput) {
+                phoneNumberInput = phoneNumberInput.replace(/[^0-9]/g, '');
+                const pn = PhoneNumber(`+${ phoneNumberInput}`);
+                if (!pn.valid) {
+                    printLog('error', 'Invalid phone number format');
+                    if (rl && !rlClosed)
                         rl.close();
-                        rl = null;
-                    }
+                    process.exit(1);
                 }
-                catch (error) {
-                    if (attempt < 3) {
-                        try {
-                            rmSync('./session', { recursive: true, force: true });
+                const doPairing = async (num) => {
+                    // Only request a new code if cooldown has expired
+                    const now = Date.now();
+                    if (_pairingRequested && (now - _pairingRequestedAt) < PAIRING_COOLDOWN) {
+                        const remaining = Math.ceil((PAIRING_COOLDOWN - (now - _pairingRequestedAt)) / 1000);
+                        printLog('info', `Pairing code already active — waiting ${remaining}s before next request`);
+                        return;
+                    }
+                    _pairingRequested = true;
+                    _pairingRequestedAt = Date.now();
+                    try {
+                        let code = await JamBot.requestPairingCode(num);
+                        code = code?.match(/.{1,4}/g)?.join("-") || code;
+                        setPairingCode(code);
+                        const domain = `localhost:${PORT}`;
+                        const pairUrl = domain.startsWith('http') ? `${domain}/pair` : `https://${domain}/pair`;
+                        printLog('info', `╔══════════════════════════════╗`);
+                        printLog('info', `║  PAIRING CODE: ${code}  ║`);
+                        printLog('info', `╚══════════════════════════════╝`);
+                        printLog('info', `Enter this code in WhatsApp → Linked Devices → Link with phone number`);
+                        printLog('info', `Or open ${pairUrl} in your browser to see it`);
+                        printLog('info', `⏱️  Code valid for ~60 seconds — enter it NOW in WhatsApp`);
+                        if (rl && !rlClosed) {
+                            rl.close();
+                            rl = null;
                         }
-                        catch (_e) { }
-                        await delay(3000);
-                        startJamBot();
+                        // Reset lock after cooldown so a fresh code can be requested next restart
+                        setTimeout(() => { _pairingRequested = false; }, PAIRING_COOLDOWN);
                     }
-                    else {
-                        printLog('error', 'All 3 pairing attempts failed. Please restart manually.');
+                    catch (error) {
+                        _pairingRequested = false; // allow retry on error
+                        printLog('error', `Pairing code request failed: ${error.message}`);
                     }
-                }
-            };
-            setTimeout(() => doPairing(phoneNumberInput), 3000);
+                };
+                setTimeout(() => doPairing(phoneNumberInput), 3000);
+            }
         }
         else if (isRegistered) {
             if (rl && !rlClosed) {
@@ -488,12 +445,9 @@ async function startJamBot() {
                 }
             }
             if (connection === "open") {
-                _botStarting = false; // release mutex — bot is fully up
-                markConnected();
-                _currentSocket = JamBot;
+                _reconnectAttempts = 0;
                 printLog('success', 'Bot connected successfully!');
-                setSocket(JamBot);
-                autoBackupSession().catch(e => printLog('warning', 'Session backup: ' + e.message));
+                setSocket(JamBot); _currentSocket = JamBot;
                 try {
                     const setbioModule = await import('./plugins/setbio.js');
                     const startAutoBio = setbioModule.startAutoBio || setbioModule.default?.startAutoBio;
@@ -507,12 +461,12 @@ async function startJamBot() {
                 if (ghostMode && ghostMode.enabled) {
                     printLog('info', '👻 STEALTH MODE ACTIVE');
                 }
-                printLog('success', `Connected to => ${JSON.stringify(JamBot.user, null, 2)}`);
+                printLog('success', `Connected to => ${ JSON.stringify(JamBot.user, null, 2)}`);
                 try {
-                    const botNumber = `${JamBot.user.id.split(':')[0]}@s.whatsapp.net`;
+                    const botNumber = `${JamBot.user.id.split(':')[0] }@s.whatsapp.net`;
                     const ghostStatus = (ghostMode && ghostMode.enabled) ? '\n👻 Stealth Mode: ACTIVE' : '';
                     await JamBot.sendMessage(botNumber, {
-                        text: `🤖 Bot Connected Successfully!\n\n⏰ Time: ${ugaNow()} (EAT)\n✅ Status: Online and Ready!${ghostStatus}\n\n`
+                        text: `🤖 Bot Connected Successfully!\n\n⏰ Time: ${new Date().toLocaleString()}\n✅ Status: Online and Ready!${ghostStatus}\n\n`
                     });
                 }
                 catch (error) {
@@ -525,6 +479,8 @@ async function startJamBot() {
                 catch (_e) { }
                 printLog('info', `[ ${config.botName || 'JAM-MD'} ]`);
                 printLog('info', `WA NUMBER  : ${owner[0] || config.ownerNumber || ''}`);
+                markConnected();
+                _reconnectAttempts = 0; // reset backoff on successful connect
                 printLog('success', `Bot Connected Successfully!`);
                 printLog('info', `Plugins   : ${commandHandler.commands.size}`);
                 printLog('info', `Prefixes   : ${config.prefixes.join(', ')}`);
@@ -534,35 +490,43 @@ async function startJamBot() {
             if (connection === 'close') {
                 markDisconnected();
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-
-                // ── Only delete session for a CONFIRMED WhatsApp logout. ────────────────
-                // A temporary 401 from a network outage must NOT wipe the session —
-                // that would force manual re-pairing every time the user's internet drops.
-                // DisconnectReason.loggedOut === 515 in newer Baileys (was 401 in old).
-                // We check BOTH to be safe, and also look at the error message.
-                const errMsg = lastDisconnect?.error?.message || '';
-                const isRealLogout = statusCode === DisconnectReason.loggedOut
-                    || errMsg.toLowerCase().includes('logged out')
-                    || errMsg.toLowerCase().includes('log out');
-
-                if (isRealLogout) {
-                    printLog('warning', '[reconnect] Confirmed logout by WhatsApp — clearing session and restarting pairing...');
-                    try { rmSync('./session', { recursive: true, force: true }); } catch {}
-                    _botStarting = false; // release mutex before restart
+                const shouldReconnect = statusCode !== DisconnectReason.loggedOut && statusCode !== 401;
+                if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+                    try {
+                        rmSync('./session', { recursive: true, force: true });
+                    }
+                    catch (_e) { /* ignore */ }
+                    _pairingRequested = false; // reset lock so fresh pairing can happen
                     await delay(3000);
-                    startJamBot();
+                    startTrailerBot();
                     return;
                 }
-
-                // Release mutex before reconnecting so the new call is allowed
-                _botStarting = false;
-                const reconnectDelaySec = Math.min(5 + Math.floor(Math.random() * 10), 15);
-                printLog('connection', `[reconnect] Disconnected (code ${statusCode}) — retrying in ${reconnectDelaySec}s...`);
-                // Clean up old socket to prevent memory leaks from accumulated listeners
-                try { JamBot.ev.removeAllListeners(); } catch {}
-                try { JamBot.ws?.close?.(); } catch {}
-                await delay(reconnectDelaySec * 1000);
-                startJamBot();
+                if (shouldReconnect) {
+                    _reconnectAttempts++;
+                    // After 5 failed reconnects without ever connecting, the session is
+                    // likely stale/expired on WhatsApp's end — clear it and force re-pair
+                    if (_reconnectAttempts >= 5 && !_pairingRequested) {
+                        printLog('warning', `5 failed reconnects — clearing stale session for fresh pairing...`);
+                        try { rmSync('./session', { recursive: true, force: true }); } catch (_e) {}
+                        _reconnectAttempts = 0;
+                        _pairingRequested = false;
+                        await delay(3000);
+                        startTrailerBot();
+                        return;
+                    }
+                    const backoffDelay = Math.min(5000 * Math.pow(2, _reconnectAttempts - 1), MAX_RECONNECT_DELAY);
+                    const timeSincePairing = Date.now() - _pairingRequestedAt;
+                    const waitTime = (_pairingRequested && timeSincePairing < PAIRING_COOLDOWN)
+                        ? Math.max(PAIRING_COOLDOWN - timeSincePairing + 2000, backoffDelay)
+                        : backoffDelay;
+                    if (_pairingRequested && timeSincePairing < PAIRING_COOLDOWN) {
+                        printLog('connection', `Pairing code active — reconnecting in ${Math.ceil(waitTime / 1000)}s to avoid invalidating it...`);
+                    } else {
+                        printLog('connection', `Reconnecting in ${Math.ceil(waitTime / 1000)}s (attempt ${_reconnectAttempts})...`);
+                    }
+                    await delay(waitTime);
+                    startTrailerBot();
+                }
             }
         });
         JamBot.ev.on('call', async (calls) => {
@@ -580,14 +544,13 @@ async function startJamBot() {
         return JamBot;
     }
     catch (error) {
-        printLog('error', `Error in startJamBot: ${error.message}`);
+        printLog('error', `Error in startTrailerBot: ${error.message}`);
         if (rl && !rlClosed) {
             rl.close();
             rl = null;
         }
-        _botStarting = false; // release mutex so retry is allowed
         await delay(5000);
-        startJamBot();
+        startTrailerBot();
     }
 }
 async function main() {
@@ -596,27 +559,43 @@ async function main() {
     printLog('info', 'Starting JAM-MD BOT...');
     await initializeSession();
     await delay(3000);
-    startJamBot().catch((error) => {
-        printLog('error', `Fatal error: ${error.message} — retrying in 10s`);
-        if (rl && !rlClosed) { rl.close(); rl = null; }
-        setTimeout(() => startJamBot().catch(() => {}), 10000);
+    startTrailerBot().catch((error) => {
+        printLog('error', `Fatal error: ${error.message}`);
+        if (rl && !rlClosed)
+            rl.close();
+        process.exit(1);
     });
 }
 main();
 
-// ── Keep-alive: prevents Wispbyte from sleeping; watchdog auto-recovers stuck reconnects ──
+// ── Keep-alive: prevents wispbyte from sleeping, watchdog auto-recovers stuck reconnects ──
+let _currentSocket = null; // updated every time JamBot socket is created/reconnected
 startKeepAlive({
     port: PORT,
     getSocket: () => _currentSocket,
     forceRestart: () => {
-        printLog('warning', '[watchdog] Disconnected 5+ min — forcing restart so Wispbyte recovers us...');
-        process.exit(1); // Wispbyte crash-detection auto-restarts on exit code 1
+        printLog('warning', 'Watchdog forcing process restart...');
+        process.exit(1); // wispbyte crash-detection restarts automatically
     }
 });
 
-// Session folder is intentionally NOT cleaned up automatically.
-// Baileys manages its own session files — any deletion risks losing the
-// WhatsApp connection and forcing a full re-pair. Leave all session files alone.
+// Session cleanup interval
+const sessionDir = path.join(process.cwd(), 'session');
+setInterval(() => {
+    if (!fs.existsSync(sessionDir))
+        return;
+    fs.readdir(sessionDir, (err, files) => {
+        if (err)
+            return;
+        for (const file of files) {
+            if (file === 'creds.json')
+                continue;
+            if (file.startsWith('app-state-sync-key-'))
+                continue;
+            fs.unlink(path.join(sessionDir, file), () => { });
+        }
+    });
+}, 3 * 60 * 1000);
 // Temp folder setup
 const customTemp = path.join(process.cwd(), 'temp');
 if (!fs.existsSync(customTemp))
@@ -639,37 +618,51 @@ setInterval(() => {
         }
     });
 }, 1 * 60 * 60 * 1000);
-// Syntax check removed — reading/checking all 280 plugins on every restart
-// caused a massive CPU spike that made Wispbyte mark the server as offline.
-// Plugin syntax errors surface naturally at runtime when commands are loaded.
-// Error handlers — log but keep the process alive; Bun/Wispbyte will restart on fatal exit
+// Syntax check dist files
+const folders = [
+    path.join(__dirname, './lib'),
+    path.join(__dirname, './plugins')
+];
+folders.forEach(folder => {
+    if (!fs.existsSync(folder))
+        return;
+    fs.readdirSync(folder)
+        .filter(file => file.endsWith('.js'))
+        .forEach(file => {
+        const filePath = path.join(folder, file);
+        try {
+            const code = fs.readFileSync(filePath, 'utf-8');
+            const err = syntaxerror(code, file, {
+                sourceType: 'module',
+                allowAwaitOutsideFunction: true
+            });
+            if (err) {
+                console.error(chalk.red(`❌ Syntax error in ${filePath}:\n${err}`));
+            }
+        }
+        catch (e) {
+            console.error(chalk.yellow(`⚠️ Cannot read file ${filePath}:\n${e}`));
+        }
+    });
+});
+// Error handlers
 process.on('uncaughtException', (err) => {
-    // Ignore known harmless Baileys noise
-    const msg = err?.message || '';
-    if (msg.includes('Cannot read properties of undefined') && msg.includes('message')) return;
-    if (msg.includes('write EPIPE') || msg.includes('read ECONNRESET')) return;
-
-    printLog('error', `Uncaught Exception: ${msg}`);
+    printLog('error', `Uncaught Exception: ${err.message}`);
     console.error(err.stack);
-    writeErrorLog({ type: 'uncaughtException', error: msg, stack: err.stack, timestamp: new Date().toISOString() });
-
-    // Only restart if not already starting — mutex prevents CPU-spike loops
-    if (_botStarting) return;
-    const backoff = getBackoffDelay();
-    recordRestart();
-    printLog('warning', `[guardian] Recovering from crash in ${backoff / 1000}s...`);
-    setTimeout(() => startJamBot().catch(() => {}), backoff);
+    writeErrorLog({
+        type: 'uncaughtException',
+        error: err.message,
+        stack: err.stack,
+        timestamp: new Date().toISOString()
+    });
 });
 process.on('unhandledRejection', (err) => {
-    if (!err) return;
-    const message = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    printLog('error', `Unhandled Rejection: ${message}`);
-    if (stack) console.error(stack);
+    printLog('error', `Unhandled Rejection: ${err.message}`);
+    console.error(err.stack);
     writeErrorLog({
         type: 'unhandledRejection',
-        error: message,
-        stack,
+        error: err.message,
+        stack: err.stack,
         timestamp: new Date().toISOString()
     });
 });
