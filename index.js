@@ -1,4 +1,6 @@
 import 'dotenv/config';
+// Bun WebSocket compatibility shim — must run before Baileys is imported
+import './lib/bun-ws-polyfill.js';
 
 import fs, { existsSync, mkdirSync, rmSync } from 'fs';
 import path, { dirname } from 'path';
