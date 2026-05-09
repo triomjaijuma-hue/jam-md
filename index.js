@@ -21,7 +21,8 @@ import config from './config.js';
 import store from './lib/lightweight_store.js';
 import SaveCreds from './lib/session.js';
 import { autoBackupSession } from './lib/sessionBackup.js';
-import { server, PORT, setSocket, setPairingCode, startKeepAlive } from './lib/server.js';
+import { server, PORT, setSocket, setPairingCode } from './lib/server.js';
+import { startKeepAlive, markConnected, markDisconnected } from './lib/keepalive.js';
 import { printLog } from './lib/print.js';
 import { writeErrorLog } from './lib/logger.js';
 import { getBackoffDelay, recordRestart, startMemoryWatchdog } from './lib/guardian.js';
@@ -76,13 +77,9 @@ global.botname = config.botName || "JAM-MD";
 global.themeemoji = "•";
 const pairingCode = !process.argv.includes("--qr-code");
 const useMobile = process.argv.includes("--mobile");
-// Detect Bun runtime — Bun may report process.stdin.isTTY=true even inside containers,
-// which causes readline to be created and SIGINT to exit unexpectedly on Wispbyte.
-const _isBun = typeof globalThis.Bun !== 'undefined';
-const _isContainerEnv = _isBun || !!process.env.WISPBYTE_URL || !!process.env.RAILWAY_PUBLIC_DOMAIN || !!process.env.RENDER_EXTERNAL_URL;
 let rl = null;
 let rlClosed = false;
-if (!_isContainerEnv && process.stdin.isTTY && !config.pairingNumber) {
+if (process.stdin.isTTY && !config.pairingNumber) {
     rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout
@@ -103,11 +100,7 @@ process.on('exit', () => {
 });
 process.on('SIGINT', () => {
     if (rl && !rlClosed) rl.close();
-    // NEVER call process.exit() here.
-    // Wispbyte sends SIGINT as a management/health-check signal — the process must stay alive.
-    // Bun also reports process.stdin.isTTY=true in containers so we cannot rely on that check.
-    // The platform will send SIGKILL when it truly needs to stop the process.
-    printLog('warning', '[system] SIGINT received — ignoring (platform management signal; SIGKILL will force-stop)');
+    process.exit(0);
 });
 process.on('SIGTERM', () => {
     // Do NOT exit on SIGTERM — this was causing Wispbyte to restart the bot on any signal.
@@ -225,11 +218,9 @@ setInterval(() => {
     }
 }, 30 * 1000);
 
+let _currentSocket = null; // always points to the live JamBot socket
 server.listen(PORT, () => {
     printLog('success', `Server listening on port ${PORT}`);
-    // Keep-alive: auto-detects public URL from incoming request Host headers.
-    // No env var needed — works on Wispbyte out of the box.
-    startKeepAlive();
 });
 
 async function startJamBot() {
@@ -499,6 +490,7 @@ async function startJamBot() {
             if (connection === "open") {
                 _botStarting = false; // release mutex — bot is fully up
                 markConnected();
+                _currentSocket = JamBot;
                 printLog('success', 'Bot connected successfully!');
                 setSocket(JamBot);
                 autoBackupSession().catch(e => printLog('warning', 'Session backup: ' + e.message));
@@ -540,6 +532,7 @@ async function startJamBot() {
                 console.log();
             }
             if (connection === 'close') {
+                markDisconnected();
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
 
                 // ── Only delete session for a CONFIRMED WhatsApp logout. ────────────────
@@ -610,6 +603,17 @@ async function main() {
     });
 }
 main();
+
+// ── Keep-alive: prevents Wispbyte from sleeping; watchdog auto-recovers stuck reconnects ──
+startKeepAlive({
+    port: PORT,
+    getSocket: () => _currentSocket,
+    forceRestart: () => {
+        printLog('warning', '[watchdog] Disconnected 5+ min — forcing restart so Wispbyte recovers us...');
+        process.exit(1); // Wispbyte crash-detection auto-restarts on exit code 1
+    }
+});
+
 // Session folder is intentionally NOT cleaned up automatically.
 // Baileys manages its own session files — any deletion risks losing the
 // WhatsApp connection and forcing a full re-pair. Leave all session files alone.
