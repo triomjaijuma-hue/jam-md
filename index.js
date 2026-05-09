@@ -176,6 +176,13 @@ async function initializeSession() {
     }
 }
 
+// ─── Bot instance mutex ─────────────────────────────────────────────────────
+// CRITICAL: Only ONE startJamBot() may run at a time.
+// Without this flag, the watchdog + disconnect handler + uncaughtException
+// all call startJamBot() simultaneously → multiple WhatsApp sockets
+// competing for the same session → CPU spikes to 60%+ → Wispbyte kills it.
+let _botStarting = false;
+
 // ─── Connection health watchdog (guardian-powered) ──────────────────────────
 // If the bot has been offline for more than 3 minutes, force a reconnect.
 // Uses guardian's exponential backoff so rapid failures don't loop endlessly.
@@ -190,17 +197,16 @@ function markConnected() {
 setInterval(() => {
     if (process.uptime() < 90) return;
     const offlineMs = Date.now() - _lastConnectedTime;
-    if (offlineMs > 3 * 60 * 1000 && !_isWatchdogReconnecting) {
+    if (offlineMs > 3 * 60 * 1000 && !_isWatchdogReconnecting && !_botStarting) {
         _isWatchdogReconnecting = true;
         printLog('warning', `[watchdog] Offline ${Math.round(offlineMs / 60000)}min — forcing reconnect...`);
-        // Use a short fixed delay here — do NOT use circuit breaker backoff.
-        // The circuit breaker is for crashes, not WhatsApp network drops.
         setTimeout(() => {
             startJamBot().then(() => {
                 _isWatchdogReconnecting = false;
             }).catch(e => {
                 printLog('error', `[watchdog] Reconnect failed: ${e.message}`);
                 _isWatchdogReconnecting = false;
+                _botStarting = false;
             });
         }, 5000);
     }
@@ -214,6 +220,12 @@ server.listen(PORT, () => {
 });
 
 async function startJamBot() {
+    // Mutex: reject concurrent calls — only one instance allowed at a time
+    if (_botStarting) {
+        printLog('warning', '[mutex] startJamBot() skipped — already starting. Ignoring duplicate call.');
+        return;
+    }
+    _botStarting = true;
     try {
         const { version } = await fetchLatestBaileysVersion();
         ensureSessionDirectory();
@@ -472,6 +484,7 @@ async function startJamBot() {
                 }
             }
             if (connection === "open") {
+                _botStarting = false; // release mutex — bot is fully up
                 markConnected();
                 printLog('success', 'Bot connected successfully!');
                 setSocket(JamBot);
@@ -529,15 +542,14 @@ async function startJamBot() {
                 if (isRealLogout) {
                     printLog('warning', '[reconnect] Confirmed logout by WhatsApp — clearing session and restarting pairing...');
                     try { rmSync('./session', { recursive: true, force: true }); } catch {}
+                    _botStarting = false; // release mutex before restart
                     await delay(3000);
                     startJamBot();
                     return;
                 }
 
-                // ── All other disconnects: reconnect with a simple short delay. ─────────
-                // DO NOT use the guardian circuit breaker here — it was designed for
-                // crashes, not WhatsApp network drops. Using it causes the bot to wait
-                // up to 2 minutes before reconnecting, making it appear permanently offline.
+                // Release mutex before reconnecting so the new call is allowed
+                _botStarting = false;
                 const reconnectDelaySec = Math.min(5 + Math.floor(Math.random() * 10), 15);
                 printLog('connection', `[reconnect] Disconnected (code ${statusCode}) — retrying in ${reconnectDelaySec}s...`);
                 await delay(reconnectDelaySec * 1000);
@@ -564,6 +576,7 @@ async function startJamBot() {
             rl.close();
             rl = null;
         }
+        _botStarting = false; // release mutex so retry is allowed
         await delay(5000);
         startJamBot();
     }
@@ -582,31 +595,9 @@ async function main() {
     });
 }
 main();
-// Session cleanup interval — only remove truly temporary files, never Baileys auth files
-const sessionDir = path.join(process.cwd(), 'session');
-const SESSION_KEEP_PATTERNS = [
-    'creds.json',
-    'app-state-sync-key-',
-    'pre-key-',
-    'sender-key-',
-    'session-',
-    'identity-',
-    'sender-key-memory-',
-];
-setInterval(() => {
-    if (!fs.existsSync(sessionDir))
-        return;
-    fs.readdir(sessionDir, (err, files) => {
-        if (err)
-            return;
-        for (const file of files) {
-            const isKept = SESSION_KEEP_PATTERNS.some(p => file === p || file.startsWith(p));
-            if (!isKept) {
-                fs.unlink(path.join(sessionDir, file), () => { });
-            }
-        }
-    });
-}, 3 * 60 * 1000);
+// Session folder is intentionally NOT cleaned up automatically.
+// Baileys manages its own session files — any deletion risks losing the
+// WhatsApp connection and forcing a full re-pair. Leave all session files alone.
 // Temp folder setup
 const customTemp = path.join(process.cwd(), 'temp');
 if (!fs.existsSync(customTemp))
@@ -629,33 +620,9 @@ setInterval(() => {
         }
     });
 }, 1 * 60 * 60 * 1000);
-// Syntax check dist files
-const folders = [
-    path.join(__dirname, './lib'),
-    path.join(__dirname, './plugins')
-];
-folders.forEach(folder => {
-    if (!fs.existsSync(folder))
-        return;
-    fs.readdirSync(folder)
-        .filter(file => file.endsWith('.js'))
-        .forEach(file => {
-        const filePath = path.join(folder, file);
-        try {
-            const code = fs.readFileSync(filePath, 'utf-8');
-            const err = syntaxerror(code, file, {
-                sourceType: 'module',
-                allowAwaitOutsideFunction: true
-            });
-            if (err) {
-                console.error(chalk.red(`❌ Syntax error in ${filePath}:\n${err}`));
-            }
-        }
-        catch (e) {
-            console.error(chalk.yellow(`⚠️ Cannot read file ${filePath}:\n${e}`));
-        }
-    });
-});
+// Syntax check removed — reading/checking all 280 plugins on every restart
+// caused a massive CPU spike that made Wispbyte mark the server as offline.
+// Plugin syntax errors surface naturally at runtime when commands are loaded.
 // Error handlers — log but keep the process alive; Bun/Wispbyte will restart on fatal exit
 process.on('uncaughtException', (err) => {
     // Ignore known harmless Baileys noise
@@ -667,7 +634,8 @@ process.on('uncaughtException', (err) => {
     console.error(err.stack);
     writeErrorLog({ type: 'uncaughtException', error: msg, stack: err.stack, timestamp: new Date().toISOString() });
 
-    // Restart with backoff — guardian prevents rapid restart loops
+    // Only restart if not already starting — mutex prevents CPU-spike loops
+    if (_botStarting) return;
     const backoff = getBackoffDelay();
     recordRestart();
     printLog('warning', `[guardian] Recovering from crash in ${backoff / 1000}s...`);
