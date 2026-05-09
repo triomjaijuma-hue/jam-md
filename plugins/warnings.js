@@ -17,7 +17,7 @@ async function loadWarnings() {
             fs.writeFileSync(warningsFilePath, JSON.stringify({}), 'utf8');
         }
         const data = fs.readFileSync(warningsFilePath, 'utf8');
-        return JSON.parse(data);
+        try { return JSON.parse(data); } catch { return {}; }
     }
 }
 export default {
