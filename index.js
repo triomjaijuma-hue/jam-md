@@ -103,11 +103,9 @@ process.on('SIGINT', () => {
     process.exit(0);
 });
 process.on('SIGTERM', () => {
-    // Wispbyte sends SIGTERM before restarting a container.
-    // Exit cleanly with code 0 so Wispbyte knows it was intentional.
-    printLog('warning', '[system] SIGTERM received — shutting down cleanly');
-    if (rl && !rlClosed) rl.close();
-    process.exit(0);
+    // Do NOT exit on SIGTERM — this was causing Wispbyte to restart the bot on any signal.
+    // If Wispbyte really needs the process gone it sends SIGKILL (which can't be caught).
+    printLog('warning', '[system] SIGTERM received — staying alive (SIGKILL will force stop if needed)');
 });
 function ensureSessionDirectory() {
     const sessionPath = path.join(__dirname, 'session');
@@ -560,6 +558,9 @@ async function startJamBot() {
                 _botStarting = false;
                 const reconnectDelaySec = Math.min(5 + Math.floor(Math.random() * 10), 15);
                 printLog('connection', `[reconnect] Disconnected (code ${statusCode}) — retrying in ${reconnectDelaySec}s...`);
+                // Clean up old socket to prevent memory leaks from accumulated listeners
+                try { JamBot.ev.removeAllListeners(); } catch {}
+                try { JamBot.ws?.close?.(); } catch {}
                 await delay(reconnectDelaySec * 1000);
                 startJamBot();
             }
@@ -596,10 +597,9 @@ async function main() {
     await initializeSession();
     await delay(3000);
     startJamBot().catch((error) => {
-        printLog('error', `Fatal error: ${error.message}`);
-        if (rl && !rlClosed)
-            rl.close();
-        process.exit(1);
+        printLog('error', `Fatal error: ${error.message} — retrying in 10s`);
+        if (rl && !rlClosed) { rl.close(); rl = null; }
+        setTimeout(() => startJamBot().catch(() => {}), 10000);
     });
 }
 main();
