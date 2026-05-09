@@ -1,11 +1,12 @@
 [install]
 # Only run lifecycle scripts for packages explicitly listed as trustedDependencies
-# @whiskeysockets/baileys is NOT trusted so its engine-requirements.js won't run
 exact = false
-
-# Ignore the npm lockfile — Bun creates its own bun.lockb instead.
-# The package-lock.json causes migration failures and incorrect package installs.
 frozenLockfile = false
 
 [install.scopes]
 # No private registry scopes needed
+
+[run]
+# Ensure Bun provides maximum Node.js compatibility when running index.js
+# This enables all Node.js-compatible APIs including full 'ws' WebSocket support
+bun-run-type = "js"
