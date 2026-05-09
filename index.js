@@ -100,7 +100,14 @@ process.on('exit', () => {
 process.on('SIGINT', () => {
     if (rl && !rlClosed)
         rl.close();
-    process.exit(0);
+    // On Wispbyte (non-TTY), SIGINT is sent by the platform for container management.
+    // Ignore it and stay alive — SIGKILL will force-stop if truly needed.
+    // Only exit on SIGINT when running interactively (local dev with a real terminal).
+    if (process.stdin.isTTY) {
+        process.exit(0);
+    } else {
+        printLog('warning', '[system] SIGINT received in non-TTY mode — ignoring (Wispbyte management signal)');
+    }
 });
 process.on('SIGTERM', () => {
     // Do NOT exit on SIGTERM — this was causing Wispbyte to restart the bot on any signal.
