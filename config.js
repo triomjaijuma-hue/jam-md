@@ -23,12 +23,11 @@ import 'dotenv/config';
       pairingNumber: process.env.PAIRING_NUMBER || '',
       // Performance
       port: Number(process.env.PORT) || 9653,
-      // PUBLIC_URL must be set to your Wispbyte public URL (e.g. https://jam-md.wispbyte.com).
-      // The keep-alive MUST ping through this public URL so Wispbyte counts it as real traffic.
-      // A raw IP:port (like http://82.165.56.146:9653) bypasses Wispbyte's proxy and is IGNORED
-      // by their idle detector — the container will sleep even if pings succeed.
-      // Set PUBLIC_URL in Wispbyte → your app → Environment Variables.
-      keepAliveUrl: process.env.PUBLIC_URL || '',
+      // On Wispbyte free tier, the public URL is the raw IP:port (no subdomain is provided).
+      // The keep-alive pings this URL every 3 min — but self-pings alone may not be enough.
+      // For guaranteed uptime, also add http://82.165.56.146:9653/ping to a FREE external
+      // uptime monitor like UptimeRobot.com (free account, 5-min checks, no credit card).
+      keepAliveUrl: process.env.PUBLIC_URL || 'http://82.165.56.146:9653',
       maxStoreMessages: Number(process.env.MAX_STORE_MESSAGES) || 20,
       tempCleanupInterval: Number(process.env.CLEANUP_INTERVAL) || 1 * 60 * 60 * 1000,
       storeWriteInterval: Number(process.env.STORE_WRITE_INTERVAL) || 10000,
