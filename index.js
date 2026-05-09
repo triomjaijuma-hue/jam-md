@@ -3,7 +3,6 @@ import 'dotenv/config';
 import fs, { existsSync, mkdirSync, rmSync } from 'fs';
 import path, { dirname } from 'path';
 import chalk from 'chalk';
-import syntaxerror from 'syntax-error';
 import { parsePhoneNumber as PhoneNumber } from 'awesome-phonenumber';
 import readline from 'readline';
 import QRCode from 'qrcode';
@@ -99,6 +98,13 @@ process.on('exit', () => {
 process.on('SIGINT', () => {
     if (rl && !rlClosed)
         rl.close();
+    process.exit(0);
+});
+process.on('SIGTERM', () => {
+    // Wispbyte sends SIGTERM before restarting a container.
+    // Exit cleanly with code 0 so Wispbyte knows it was intentional.
+    printLog('warning', '[system] SIGTERM received — shutting down cleanly');
+    if (rl && !rlClosed) rl.close();
     process.exit(0);
 });
 function ensureSessionDirectory() {
