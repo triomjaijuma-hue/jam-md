@@ -23,6 +23,10 @@ const config = {
     pairingNumber: process.env.PAIRING_NUMBER || '',
     // Performance
     port: Number(process.env.PORT) || 9653,
+    // Wispbyte public address — hardcoded because Wispbyte has no env var support.
+    // This lets the keep-alive start pinging immediately on startup without waiting
+    // for an external HTTP request to auto-detect the URL.
+    keepAliveUrl: process.env.PUBLIC_URL || 'http://82.165.56.146:9653',
     maxStoreMessages: Number(process.env.MAX_STORE_MESSAGES) || 20,
     tempCleanupInterval: Number(process.env.CLEANUP_INTERVAL) || 1 * 60 * 60 * 1000,
     storeWriteInterval: Number(process.env.STORE_WRITE_INTERVAL) || 10000,
