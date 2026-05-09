@@ -1,9 +1,6 @@
 import axios from 'axios';
 import yts from 'yt-search';
 
-const DL_API = 'https://api.qasimdev.dpdns.org/api/loaderto/download';
-const API_KEY = 'xbps-install-Syu';
-
 // Available resolution options
 // NOTE: 'worst' for option 1 picks the truly smallest combined file.
 // Requesting '144' separately forces a video-only stream + full audio merge
@@ -22,20 +19,28 @@ const pending = {};
 
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-async function downloadVideo(url, format) {
-    for (let i = 0; i < 3; i++) {
+// Multiple APIs tried in order — 30s timeout each, 1.5s between attempts
+const DL_APIS = [
+    { url: 'https://api.qasimdev.dpdns.org/api/loaderto/download', key: 'xbps-install-Syu', param: 'apiKey' },
+    { url: 'https://api.siputzx.my.id/api/d/ytmp4', key: null, param: null },
+];
+
+async function downloadVideo(videoUrl, format) {
+    for (const api of DL_APIS) {
         try {
-            const { data } = await axios.get(DL_API, {
-                params: { apiKey: API_KEY, format, url },
-                timeout: 120000
-            });
-            if (data?.data?.downloadUrl) return data.data;
-            throw new Error('No download URL in response');
+            const params = { format, url: videoUrl };
+            if (api.key) params[api.param] = api.key;
+            const { data } = await axios.get(api.url, { params, timeout: 30000 });
+            const result = data?.data || data;
+            const dlUrl = result?.downloadUrl || result?.url || result?.link;
+            if (dlUrl) return { downloadUrl: dlUrl, title: result?.title || '', thumbnail: result?.thumbnail || result?.image || '' };
+            throw new Error('No download URL');
         } catch (err) {
-            if (i === 2) throw err;
-            await wait(5000);
+            console.log('[vdown] API failed (' + api.url.split('/')[2] + '):', err.message);
+            await wait(1500);
         }
     }
+    throw new Error('All download APIs failed — try again in a moment');
 }
 
 function isExpired(session) {
