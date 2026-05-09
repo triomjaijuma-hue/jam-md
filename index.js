@@ -76,9 +76,13 @@ global.botname = config.botName || "JAM-MD";
 global.themeemoji = "•";
 const pairingCode = !process.argv.includes("--qr-code");
 const useMobile = process.argv.includes("--mobile");
+// Detect Bun runtime — Bun may report process.stdin.isTTY=true even inside containers,
+// which causes readline to be created and SIGINT to exit unexpectedly on Wispbyte.
+const _isBun = typeof globalThis.Bun !== 'undefined';
+const _isContainerEnv = _isBun || !!process.env.WISPBYTE_URL || !!process.env.RAILWAY_PUBLIC_DOMAIN || !!process.env.RENDER_EXTERNAL_URL;
 let rl = null;
 let rlClosed = false;
-if (process.stdin.isTTY && !config.pairingNumber) {
+if (!_isContainerEnv && process.stdin.isTTY && !config.pairingNumber) {
     rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout
@@ -98,16 +102,12 @@ process.on('exit', () => {
         rl.close();
 });
 process.on('SIGINT', () => {
-    if (rl && !rlClosed)
-        rl.close();
-    // On Wispbyte (non-TTY), SIGINT is sent by the platform for container management.
-    // Ignore it and stay alive — SIGKILL will force-stop if truly needed.
-    // Only exit on SIGINT when running interactively (local dev with a real terminal).
-    if (process.stdin.isTTY) {
-        process.exit(0);
-    } else {
-        printLog('warning', '[system] SIGINT received in non-TTY mode — ignoring (Wispbyte management signal)');
-    }
+    if (rl && !rlClosed) rl.close();
+    // NEVER call process.exit() here.
+    // Wispbyte sends SIGINT as a management/health-check signal — the process must stay alive.
+    // Bun also reports process.stdin.isTTY=true in containers so we cannot rely on that check.
+    // The platform will send SIGKILL when it truly needs to stop the process.
+    printLog('warning', '[system] SIGINT received — ignoring (platform management signal; SIGKILL will force-stop)');
 });
 process.on('SIGTERM', () => {
     // Do NOT exit on SIGTERM — this was causing Wispbyte to restart the bot on any signal.
