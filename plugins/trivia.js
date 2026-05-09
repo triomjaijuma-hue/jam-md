@@ -208,12 +208,16 @@ export default {
         game.startTime = Date.now();
 
         game.timer = setTimeout(async () => {
-            if (triviaGames[chatId]) {
-                const g = triviaGames[chatId];
+            try {
+                if (triviaGames[chatId]) {
+                    const g = triviaGames[chatId];
+                    delete triviaGames[chatId];
+                    await sock.sendMessage(chatId, {
+                        text: `⏰ *Time's up! Nobody answered.*\n\n✅ The correct answer was: *${g.correctAnswer}*\n\n_Start a new one with .trivia_ 🎯`
+                    });
+                }
+            } catch (_e) {
                 delete triviaGames[chatId];
-                await sock.sendMessage(chatId, {
-                    text: `⏰ *Time's up! Nobody answered.*\n\n✅ The correct answer was: *${g.correctAnswer}*\n\n_Start a new one with .trivia_ 🎯`
-                });
             }
         }, TIMEOUT_MS);
 
