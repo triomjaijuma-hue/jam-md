@@ -22,7 +22,7 @@ const config = {
     sessionId: process.env.SESSION_ID || '',
     pairingNumber: process.env.PAIRING_NUMBER || '',
     // Performance
-    port: Number(process.env.PORT) || 5000,
+    port: Number(process.env.PORT) || 9653,
     maxStoreMessages: Number(process.env.MAX_STORE_MESSAGES) || 20,
     tempCleanupInterval: Number(process.env.CLEANUP_INTERVAL) || 1 * 60 * 60 * 1000,
     storeWriteInterval: Number(process.env.STORE_WRITE_INTERVAL) || 10000,
