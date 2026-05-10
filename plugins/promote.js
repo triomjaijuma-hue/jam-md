@@ -1,4 +1,3 @@
-import { ugaNow } from '../lib/ugaTime.js';
 async function handlePromotionEvent(sock, groupId, participants, author) {
     try {
         if (!Array.isArray(participants) || participants.length === 0) {
@@ -24,7 +23,7 @@ async function handlePromotionEvent(sock, groupId, participants, author) {
             `👥 *Promoted User${participants.length > 1 ? 's' : ''}:*\n` +
             `${promotedUsernames.map(name => `• ${name}`).join('\n')}\n\n` +
             `👑 *Promoted By:* ${promotedBy}\n\n` +
-            `📅 *Date:* ${ugaNow()} (EAT)`;
+            `📅 *Date:* ${new Date().toLocaleString()}`;
         await sock.sendMessage(groupId, {
             text: promotionMessage,
             mentions: mentionList
@@ -69,7 +68,7 @@ export default {
                 `👥 *Promoted User${userToPromote.length > 1 ? 's' : ''}:*\n` +
                 `${usernames.map(name => `• ${name}`).join('\n')}\n\n` +
                 `👑 *Promoted By:* @${promoterJid.split('@')[0]}\n\n` +
-                `📅 *Date:* ${ugaNow()} (EAT)`;
+                `📅 *Date:* ${new Date().toLocaleString()}`;
             await sock.sendMessage(chatId, {
                 text: promotionMessage,
                 mentions: [...userToPromote, promoterJid],
