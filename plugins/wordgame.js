@@ -38,7 +38,7 @@ function hint(word) {
 }
 
 const wordGames = {};
-let _wordListenerRegistered = false;
+let listenerRegistered = false;
 
 export default {
     command: 'wordgame',
@@ -46,7 +46,6 @@ export default {
     category: 'games',
     description: 'Scrambled word game — first to unscramble wins!',
     usage: '.wordgame to start | type the answer to win',
-
     async handler(sock, message, args, context) {
         const { chatId } = context;
         const raw = (
@@ -116,15 +115,12 @@ export default {
         }, { quoted: message });
 
         // ── Listen for answers ───────────────────────────────────────
-        if (!_wordListenerRegistered) {
-            _wordListenerRegistered = true;
+        if (!listenerRegistered) {
+            listenerRegistered = true;
             sock.ev.on('messages.upsert', async (upsert) => {
                 const m = upsert.messages[0];
-                if (!m?.message) return;
+                if (!m?.message || m.key.fromMe) return;
                 const chat = m.key.remoteJid;
-                const isGroupMsg = chat.endsWith('@g.us');
-                // In groups skip bot's own messages; in DMs/self-chat allow them
-                if (m.key.fromMe && isGroupMsg) return;
                 if (!wordGames[chat]) return;
 
                 const body = (
