@@ -19,7 +19,7 @@ export default {
         }
         await sock.sendMessage(chatId, { text: '⏳ Downloading TikTok video...' }, { quoted: message });
         try {
-            const apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(url)}&hd=1`;
+            const apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(url)}&hd=0`;
             const res = await fetch(apiUrl, {
                 headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.tikwm.com/' },
                 signal: AbortSignal.timeout(30000)
@@ -29,7 +29,10 @@ export default {
                 throw new Error(json?.msg || 'Invalid API response');
             }
             const d = json.data;
-            const videoUrl = d.hdplay || d.play;
+
+            // Prefer d.play (H.264, universally compatible) over d.hdplay (often HEVC/H.265
+            // which WhatsApp plays audio-only on many devices).
+            const videoUrl = d.play || d.hdplay;
             if (!videoUrl) throw new Error('No downloadable video found');
 
             const likeCount = Number(d.digg_count || 0);
@@ -54,11 +57,19 @@ export default {
 📝 *Caption:*
 ${d.title || 'No caption'}
 
-✨ *Quality:* ${d.hdplay ? 'HD No Watermark' : 'No Watermark'}
+✨ *Quality:* No Watermark
 ━━━━━━━━━━━━━━━━━━━`;
 
+            // Download as buffer so WhatsApp receives a complete, decodable mp4
+            const videoRes = await fetch(videoUrl, {
+                headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.tikwm.com/' },
+                signal: AbortSignal.timeout(60000)
+            });
+            if (!videoRes.ok) throw new Error(`Video fetch failed: ${videoRes.status}`);
+            const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
+
             await sock.sendMessage(chatId, {
-                video: { url: videoUrl },
+                video: videoBuffer,
                 mimetype: 'video/mp4',
                 caption
             }, { quoted: message });
