@@ -5,8 +5,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Allow git to clone GitHub deps via HTTPS (no SSH keys in Docker)
 RUN git config --global url."https://github.com/".insteadOf "git+ssh://git@github.com/" && \
-    git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" && \
+    git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"    && \
     git config --global http.sslVerify false
 
 WORKDIR /app
@@ -20,4 +21,4 @@ RUN mkdir -p data temp session
 
 EXPOSE 5000
 
-CMD ["node", "--max-old-space-size=512", "--optimize-for-size", "--expose-gc", "index.js"]
+CMD ["npm", "run", "start:optimized"]
