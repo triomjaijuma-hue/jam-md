@@ -1,7 +1,7 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
 import axios from 'axios';
 import FormData from 'form-data';
-import { fileTypeFromBuffer } from '../lib/filetype-compat.js';
+import { fileTypeFromBuffer } from 'file-type';
 async function getMediaBuffer(msg, sock) {
     return await downloadMediaMessage(msg, 'buffer', {}, {
         logger: sock.logger,
