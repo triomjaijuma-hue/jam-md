@@ -1,7 +1,7 @@
 export default {
     command: 'itunes',
     aliases: ['song', 'music', 'track'],
-    category: 'music',
+    category: 'info',
     description: 'Get detailed information about a song from iTunes',
     usage: '.itunes <song name>',
     async handler(sock, message, args, context) {
