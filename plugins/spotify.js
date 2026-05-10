@@ -9,7 +9,7 @@ const formatDuration = (ms) => {
 export default {
     command: 'spotify',
     aliases: ['sptfdl', 'spotifydl'],
-    category: 'music',
+    category: 'download',
     description: 'Download music from Spotify',
     usage: '.spotify <spotify-url>',
     async handler(sock, message, args, context) {
