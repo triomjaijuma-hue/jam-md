@@ -1,4 +1,11 @@
-import sharp from 'sharp';
+let _sharp = null;
+async function getSharp() {
+    if (!_sharp) {
+        try { _sharp = (await import('sharp')).default; }
+        catch { throw new Error('sharp not installed'); }
+    }
+    return _sharp;
+}
 import fs from 'fs';
 import fsPromises from 'fs/promises';
 import path from 'path';
@@ -38,7 +45,7 @@ export default {
             for await (const chunk of stream)
                 buffer = Buffer.concat([buffer, chunk]);
             await fsPromises.writeFile(stickerFilePath, buffer);
-            await sharp(stickerFilePath).toFormat('png').toFile(outputImagePath);
+            await (await getSharp())(stickerFilePath).toFormat('png').toFile(outputImagePath);
             const imageBuffer = await fsPromises.readFile(outputImagePath);
             await sock.sendMessage(chatId, { image: imageBuffer, caption: '✨ Here is the converted image!' }, { quoted: message });
             scheduleFileDeletion(stickerFilePath);
