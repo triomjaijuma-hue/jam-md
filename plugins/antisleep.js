@@ -3,18 +3,16 @@
  *
  * How sleep prevention works on Pterodactyl:
  *   - The bot CANNOT ping its own external IP from inside the container.
- *     (Pterodactyl doesn't support hairpin NAT — the container has no route
- *      back to itself through the host port mapping.)
- *   - What DOES work: local /health ping every 2 min keeps the Node.js
- *     event loop busy so the process never idles out.
- *   - For true "external traffic" keepalive, a FREE external cron service
- *     (cron-job.org) pings your public IP:port from outside. Setup is shown
- *     when you run .antisleep
+ *     (Pterodactyl doesn't support hairpin NAT.)
+ *   - Local /health ping every 2 min keeps the Node.js event loop busy.
+ *   - cron-job.org pings the public IP from outside every 5 min.
+ *   - If CPU hits 80% for 2 consecutive checks (60 s), bot auto-restarts
+ *     via process.exit(1) — Pterodactyl brings it back automatically.
  *
  * Commands:
  *   .antisleep          — show status + cron-job.org setup guide
  *   .antisleep on/off   — toggle local keepalive pinging
- *   .antisleep url <u>  — save your public URL (shown in status + cron guide)
+ *   .antisleep url <u>  — save your public URL (shown in cron guide)
  *   .antisleep test     — test local /health ping right now
  *   .antisleep cron     — show step-by-step cron-job.org setup
  */
@@ -24,6 +22,10 @@ import path from 'path';
 import os from 'os';
 
 const DATA_FILE = path.join(process.cwd(), 'data', 'antisleep.json');
+
+// ── CPU threshold ─────────────────────────────────────────────────────────────
+const CPU_RESTART_THRESHOLD = 80;   // restart if CPU >= this
+const CPU_CHECKS_BEFORE_RESTART = 2; // must be high for N consecutive 30-s checks
 
 // ── Persistent state ──────────────────────────────────────────────────────────
 function loadState() {
@@ -59,7 +61,7 @@ function getCpuPercent() {
     return Math.round(((totalDiff - idleDiff) / totalDiff) * 100);
 }
 
-// ── Local health ping (the only reliable ping from inside Pterodactyl) ────────
+// ── Local health ping ─────────────────────────────────────────────────────────
 async function pingLocal(port, timeoutMs = 8000) {
     const url = `http://localhost:${port}/health`;
     const ctrl = new AbortController();
@@ -74,30 +76,50 @@ async function pingLocal(port, timeoutMs = 8000) {
     }
 }
 
-// ── Background keepalive loop (singleton) ─────────────────────────────────────
+// ── Background loops (singleton) ──────────────────────────────────────────────
 let _loopStarted = false;
 function startLoop() {
     if (_loopStarted) return;
     _loopStarted = true;
 
     const port = Number(process.env.PORT) || 5000;
+    let highCpuStreak = 0; // consecutive high-CPU checks
 
-    const tick = async () => {
+    // ── Keepalive ping every 2 minutes ──
+    const ping = async () => {
         const { enabled } = loadState();
         if (!enabled) return;
-        // Local ping only — external pings always fail from inside Pterodactyl.
-        // cron-job.org handles the external keepalive instead.
         await pingLocal(port);
     };
+    ping();
+    setInterval(ping, 2 * 60 * 1000);
 
-    tick();
-    setInterval(tick, 2 * 60 * 1000); // every 2 minutes
-
-    // CPU spike warning — complements the existing keepalive.js monitor
+    // ── CPU guard every 30 seconds ──
     setInterval(() => {
         const pct = getCpuPercent();
-        if (pct >= 85)
-            console.warn(`[antisleep] ⚠️ CPU ${pct}% — platform may throttle soon`);
+
+        if (pct >= CPU_RESTART_THRESHOLD) {
+            highCpuStreak++;
+            console.warn(
+                `[antisleep] ⚠️ CPU ${pct}% — above ${CPU_RESTART_THRESHOLD}% ` +
+                `(${highCpuStreak}/${CPU_CHECKS_BEFORE_RESTART} checks)`
+            );
+
+            if (highCpuStreak >= CPU_CHECKS_BEFORE_RESTART) {
+                console.warn(
+                    `[antisleep] 🔄 CPU sustained at ${pct}% for ` +
+                    `${highCpuStreak * 30}s — triggering restart to clear load`
+                );
+                // Give Pterodactyl 2 s to log the message, then exit.
+                // Exit code 1 → Pterodactyl auto-restarts the container.
+                setTimeout(() => process.exit(1), 2000);
+            }
+        } else {
+            if (highCpuStreak > 0) {
+                console.log(`[antisleep] ✅ CPU back to ${pct}% — streak reset`);
+            }
+            highCpuStreak = 0;
+        }
     }, 30 * 1000);
 }
 startLoop();
@@ -130,31 +152,31 @@ function statusText(state) {
     const h = Math.floor(up / 3600), m = Math.floor((up % 3600) / 60), s = up % 60;
     const url  = state.publicUrl || '';
 
+    const cpuStatus = cpu >= CPU_RESTART_THRESHOLD
+        ? `⚠️ ${cpu}% (HIGH — will restart if sustained 60s)`
+        : cpu >= 70
+        ? `🟡 ${cpu}% (elevated)`
+        : `✅ ${cpu}%`;
+
     const lines = [
         `🔋 *Anti-Sleep Status*`,
         ``,
-        `• Local ping: ${state.enabled ? '✅ ON (every 2 min)' : '❌ OFF'}`,
-        `• Local URL:  \`http://localhost:${port}/health\``,
-        `• Public URL: ${url ? `\`${url}\`` : '⚠️ Not set yet (see below)'}`,
-        `• External keepalive: ${url ? '⚙️ Set up cron-job.org with your URL' : '❌ Not configured'}`,
+        `• Local ping:    ${state.enabled ? '✅ ON (every 2 min)' : '❌ OFF'}`,
+        `• CPU guard:     ✅ ON (restarts if ≥${CPU_RESTART_THRESHOLD}% for 60s)`,
+        `• Public URL:    ${url ? `\`${url}\`` : '⚠️ Not set (see cron guide below)'}`,
         ``,
         `📊 *System*`,
-        `• CPU: ${cpu}%`,
-        `• RAM: ${Math.round(mem.rss / 1024 / 1024)} MB`,
+        `• CPU:    ${cpuStatus}`,
+        `• RAM:    ${Math.round(mem.rss / 1024 / 1024)} MB`,
         `• Uptime: ${h}h ${m}m ${s}s`,
         ``,
         `━━━━━━━━━━━━━━━━━━━━`,
-        ``,
-        `⚠️ *Why external pings fail from inside Pterodactyl:*`,
-        `Pterodactyl containers cannot reach their own external`,
-        `IP — this is normal. Local pings work fine and keep`,
-        `Node.js alive. For 24/7 uptime, use cron-job.org:`,
         ``,
         cronGuide(url),
         ``,
         `*Commands:*`,
         `• \`.antisleep on/off\` — toggle local pinging`,
-        `• \`.antisleep url http://IP:PORT\` — save your public URL`,
+        `• \`.antisleep url http://IP:PORT\` — set public URL`,
         `• \`.antisleep test\` — test local /health ping`,
         `• \`.antisleep cron\` — show cron-job.org setup guide`,
     ];
@@ -166,7 +188,7 @@ export default {
     command: 'antisleep',
     aliases: ['keepalive', 'nosleep', 'antislp'],
     category: 'owner',
-    description: 'Keep bot alive on Orihost/Pterodactyl — local ping + cron-job.org guide',
+    description: 'Keep bot alive on Orihost — ping + CPU guard (auto-restart at 80%)',
     usage: '.antisleep [on|off|url <url>|test|cron]',
     ownerOnly: true,
     async handler(sock, message, args, context) {
@@ -179,7 +201,14 @@ export default {
             state.enabled = true;
             saveState(state);
             return sock.sendMessage(chatId, {
-                text: `✅ *Local keepalive ON*\nPinging /health every 2 min to keep Node.js alive.\n\nFor full 24/7 uptime, also set up cron-job.org:\n_.antisleep cron_`
+                text: [
+                    `✅ *Local keepalive ON*`,
+                    `• /health ping every 2 min`,
+                    `• Auto-restart if CPU ≥ ${CPU_RESTART_THRESHOLD}% for 60s`,
+                    ``,
+                    `For full 24/7 uptime, set up cron-job.org:`,
+                    `_.antisleep cron_`,
+                ].join('\n')
             }, { quoted: message });
         }
 
@@ -188,7 +217,7 @@ export default {
             state.enabled = false;
             saveState(state);
             return sock.sendMessage(chatId, {
-                text: `⏸️ *Local keepalive OFF*\nWarning: bot may idle out. Re-enable with _.antisleep on_`
+                text: `⏸️ *Local keepalive OFF*\n⚠️ CPU guard still active (auto-restart at ${CPU_RESTART_THRESHOLD}%).\nRe-enable pinging: _.antisleep on_`
             }, { quoted: message });
         }
 
@@ -200,10 +229,8 @@ export default {
                     text: [
                         `❌ Provide your full public URL.`,
                         ``,
-                        `Example (use your Orihost IP and port):`,
+                        `Example (your Orihost IP and port):`,
                         `  _.antisleep url http://2.56.246.119:30003_`,
-                        ``,
-                        `You can find your IP:port in the Orihost panel → Address field.`,
                     ].join('\n')
                 }, { quoted: message });
             }
@@ -214,9 +241,8 @@ export default {
                     `✅ *Public URL saved:* \`${url}\``,
                     ``,
                     `📌 Note: the bot cannot ping this URL from inside`,
-                    `the Pterodactyl container — that is normal and expected.`,
-                    ``,
-                    `To use it for 24/7 keepalive, give this URL to cron-job.org:`,
+                    `the Pterodactyl container — that is normal.`,
+                    `Give this URL to cron-job.org to ping from outside:`,
                     ``,
                     cronGuide(url),
                 ].join('\n')
@@ -225,22 +251,22 @@ export default {
 
         // ── .antisleep test ──
         if (sub === 'test') {
-            const port   = Number(process.env.PORT) || 5000;
-            const state2 = loadState();
+            const port = Number(process.env.PORT) || 5000;
             await sock.sendMessage(chatId, { text: '🔍 Testing local /health ping…' }, { quoted: message });
             const r   = await pingLocal(port);
             const cpu = getCpuPercent();
             const mem = Math.round(process.memoryUsage().rss / 1024 / 1024);
+            const cpuStatus = cpu >= CPU_RESTART_THRESHOLD
+                ? `⚠️ ${cpu}% — HIGH (auto-restart will trigger if sustained)`
+                : `${cpu}% — OK`;
             return sock.sendMessage(chatId, {
                 text: [
                     `🔍 *Ping Test*`,
                     ``,
                     `• Local /health: ${r.ok ? `✅ OK (${r.status})` : `❌ Failed — ${r.error || r.status}`}`,
-                    `• External ping: ℹ️ Not tested from inside container`,
-                    `  (use cron-job.org to ping from outside)`,
+                    `• External ping: ℹ️ Done by cron-job.org (not testable from inside)`,
                     ``,
-                    `📊 CPU: ${cpu}% | RAM: ${mem} MB`,
-                    `🌐 Your public URL: ${state2.publicUrl || '(not set — use .antisleep url)'}`,
+                    `📊 CPU: ${cpuStatus} | RAM: ${mem} MB`,
                 ].join('\n')
             }, { quoted: message });
         }
