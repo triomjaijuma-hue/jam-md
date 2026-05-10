@@ -1,19 +1,19 @@
 services:
   - type: web
-    name: jam-md
+    name: mega-md
     runtime: docker
-    dockerfilePath: Dockerfile
+    dockerfilePath: lib/Dockerfile
     envVars:
       - key: SESSION_ID
         value: ""
       - key: OWNER_NUMBER
-        value: "256765309986"
+        value: "923000000000"
       - key: BOT_NAME
-        value: "JAM-MD"
+        value: "MEGA-MD"
       - key: COMMAND_MODE
         value: "public"
       - key: TIMEZONE
-        value: "Africa/Kampala"
+        value: "Asia/Karachi"
       - key: MONGO_URL
         value: ""
       - key: POSTGRES_URL
@@ -22,3 +22,4 @@ services:
         value: ""
       - key: DB_URL
         value: ""
+    startCommand: npm run start:optimized
