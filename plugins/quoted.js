@@ -1,19 +1,31 @@
 import axios from 'axios';
+import { Image } from 'node-webpmux';
+import crypto from 'crypto';
+import sharp from 'sharp';
 
-// Lazy-loaded to prevent bot crash if stickers-formatter fails to load
-let _Sticker = null;
-let _StickerTypes = null;
+function buildExif({ packname = '', author = '', categories = [''] } = {}) {
+    const json = {
+        'sticker-pack-id': crypto.randomBytes(32).toString('hex'),
+        'sticker-pack-name': packname,
+        'sticker-pack-publisher': author,
+        'emojis': categories.filter(Boolean)
+    };
+    const exifAttr = Buffer.from([0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x41, 0x57, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00]);
+    const jsonBuffer = Buffer.from(JSON.stringify(json), 'utf8');
+    const exif = Buffer.concat([exifAttr, jsonBuffer]);
+    exif.writeUIntLE(jsonBuffer.length, 14, 4);
+    return exif;
+}
 
-async function getStickerLib() {
-    if (_Sticker) return { Sticker: _Sticker, StickerTypes: _StickerTypes };
-    try {
-        const mod = await import('stickers-formatter');
-        _Sticker = mod.Sticker;
-        _StickerTypes = mod.StickerTypes;
-        return { Sticker: _Sticker, StickerTypes: _StickerTypes };
-    } catch (err) {
-        throw new Error(`stickers-formatter unavailable: ${err.message}`);
-    }
+async function imageToStickerBuffer(imageBuffer, { packname = '', author = '', categories = [''] } = {}) {
+    const webpBuf = await sharp(imageBuffer)
+        .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+        .webp({ quality: 100 })
+        .toBuffer();
+    const img = new Image();
+    await img.load(webpBuf);
+    img.exif = buildExif({ packname, author, categories });
+    return await img.save(null);
 }
 
 export default {
@@ -76,20 +88,18 @@ export default {
                 throw new Error('Invalid API response');
             const bufferImage = Buffer.from(res.data.result.image, 'base64');
             try {
-                const { Sticker, StickerTypes } = await getStickerLib();
-                const stickerBuffer = await new Sticker(bufferImage, {
-                    pack: 'JAM-MD',
+                const stickerBuffer = await imageToStickerBuffer(bufferImage, {
+                    packname: 'JAM-MD',
                     author: userName,
-                    type: StickerTypes.FULL,
-                    categories: ['🤩', '🎉'],
-                    quality: 100,
-                    background: '#00000000'
-                }).toBuffer();
+                    categories: ['🤩', '🎉']
+                });
                 await sock.sendMessage(chatId, { sticker: stickerBuffer }, { quoted: message });
-            } catch {
+            }
+            catch {
                 await sock.sendMessage(chatId, { image: bufferImage, caption: '📝 Quote image (sticker conversion failed)' }, { quoted: message });
             }
-        } catch (err) {
+        }
+        catch (err) {
             console.error('Quote plugin error:', err);
             const msg = err.message.includes('timeout')
                 ? 'Request timed out.'
