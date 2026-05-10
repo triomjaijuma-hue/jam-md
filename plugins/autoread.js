@@ -32,26 +32,10 @@ async function saveConfig(config) {
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
     }
 }
-// Reset autoread to disabled every time the bot starts.
-// This prevents messages from being silently blue-ticked after a restart.
-// The owner can still turn it on per-session with .autoread on, but it
-// will NOT persist — next restart puts it back to off automatically.
-(async () => {
-    try {
-        if (HAS_DB) {
-            await store.saveSetting('global', 'autoread', { enabled: false });
-        } else {
-            const dataDir = path.dirname(configPath);
-            if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-            fs.writeFileSync(configPath, JSON.stringify({ enabled: false }, null, 2));
-        }
-    } catch (_e) {}
-})();
-
 async function isAutoreadEnabled() {
     try {
         const config = await initConfig();
-        return config.enabled === true;
+        return config.enabled;
     }
     catch (error) {
         console.error('Error checking autoread status:', error);
@@ -114,8 +98,6 @@ export async function handleAutoread(sock, message) {
                     id: message.key.id,
                     participant: message.key.participant
                 };
-                // Log every auto-read so the owner knows it's happening
-                console.log('[autoread] Marking message as read:', key.remoteJid?.split('@')[0], key.id?.slice(0, 8));
                 await sock.readMessages([key]);
                 return true;
             }
