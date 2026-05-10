@@ -27,12 +27,9 @@ export default {
             if (seconds || uptimeParts.length === 0)
                 uptimeParts.push(`${seconds}s`);
             const uptimeText = uptimeParts.join(' ');
-            // Use process.memoryUsage() — accurate for Docker/Wispbyte containers.
-            // os.totalmem() / os.freemem() read the HOST server (44 GB+), not the container.
-            const mem = process.memoryUsage();
-            const usedMem = (mem.rss / 1024 / 1024).toFixed(1);          // actual physical RAM used
-            const heapUsed = (mem.heapUsed / 1024 / 1024).toFixed(1);    // JS heap used
-            const heapTotal = (mem.heapTotal / 1024 / 1024).toFixed(1);  // JS heap allocated
+            const totalMem = (os.totalmem() / 1024 / 1024).toFixed(2);
+            const freeMem = (os.freemem() / 1024 / 1024).toFixed(2);
+            const usedMem = (Number(totalMem) - Number(freeMem)).toFixed(2);
             const cpuLoad = os.loadavg()[0].toFixed(2);
             const platform = os.platform();
             const arch = os.arch();
@@ -41,7 +38,7 @@ export default {
                 `*Owner:* ${config.botOwner}\n` +
                 `*Version:* ${config.version}\n` +
                 `*Uptime:* ${uptimeText}\n` +
-                `*RAM Usage:* ${usedMem} MB\n` +
+                `*RAM Usage:* ${usedMem} MB / ${totalMem} MB\n` +
                 `*CPU Load:* ${cpuLoad}\n` +
                 `*Platform:* ${platform} (${arch})\n` +
                 `*Node.js:* ${nodeVersion}\n`;
