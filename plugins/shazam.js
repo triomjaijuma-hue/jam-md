@@ -35,7 +35,7 @@ async function downloadMedia(msg, type) {
 export default {
     command: 'shazam',
     aliases: ['whatmusic', 'songid'],
-    category: 'music',
+    category: 'info',
     description: 'Identify a song from audio or video',
     usage: '.shazam (reply to audio or video)',
     async handler(sock, message, args, context) {
