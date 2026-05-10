@@ -646,7 +646,15 @@ folders.forEach(folder => {
     });
 });
 // Error handlers
+// Bad MAC / session cipher errors are libsignal decryption failures for group messages
+// whose keys the bot never had. They are harmless but flood the console and spike CPU.
+// We swallow them silently — every other error still gets logged normally.
+function isBadMacError(err) {
+    const msg = (err?.message || err?.toString() || '').toLowerCase();
+    return msg.includes('bad mac') || msg.includes('failed to decrypt') || msg.includes('session error');
+}
 process.on('uncaughtException', (err) => {
+    if (isBadMacError(err)) return;
     printLog('error', `Uncaught Exception: ${err.message}`);
     console.error(err.stack);
     writeErrorLog({
@@ -657,6 +665,7 @@ process.on('uncaughtException', (err) => {
     });
 });
 process.on('unhandledRejection', (err) => {
+    if (isBadMacError(err)) return;
     printLog('error', `Unhandled Rejection: ${err.message}`);
     console.error(err.stack);
     writeErrorLog({
