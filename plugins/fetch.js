@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { fileTypeFromBuffer } from '../lib/filetype-compat.js';
+import { fileTypeFromBuffer } from 'file-type';
 export default {
     command: 'fetch',
     aliases: ['get', 'download'],
