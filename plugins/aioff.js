@@ -1,47 +1,53 @@
 import fs from 'fs';
 import { dataFile } from '../lib/paths.js';
+import store from '../lib/lightweight_store.js';
 
-const AION_FILE = dataFile('aion_chats.json');
+const AUTO_AI_FILE = dataFile('autoAi.json');
+const HAS_DB = !!(process.env.MONGO_URL || process.env.POSTGRES_URL || process.env.MYSQL_URL || process.env.DB_URL);
 
-function loadAionData() {
+async function getAutoAiChats() {
     try {
-        if (fs.existsSync(AION_FILE)) return JSON.parse(fs.readFileSync(AION_FILE, 'utf-8'));
-    } catch {}
-    return { chats: {} };
+        if (HAS_DB) {
+            return (await store.getSetting('global', 'autoAi')) || {};
+        }
+        if (!fs.existsSync(AUTO_AI_FILE)) return {};
+        return JSON.parse(fs.readFileSync(AUTO_AI_FILE, 'utf8'));
+    } catch { return {}; }
 }
 
-function saveAionData(data) {
+async function setAutoAiChats(data) {
     try {
-        fs.writeFileSync(AION_FILE, JSON.stringify(data, null, 2));
+        if (HAS_DB) {
+            await store.saveSetting('global', 'autoAi', data);
+        } else {
+            fs.writeFileSync(AUTO_AI_FILE, JSON.stringify(data, null, 2));
+        }
     } catch (e) {
-        console.error('[aioff] save error:', e.message);
+        console.error('autoAi save error:', e.message);
     }
 }
 
 export default {
     command: 'aioff',
-    aliases: ['aistop', 'stopai'],
+    aliases: ['disableai'],
     category: 'owner',
-    description: 'Disable always-on AI replies for this chat',
+    description: 'Disable AI auto-reply in this chat',
     usage: '.aioff',
     ownerOnly: true,
     async handler(sock, message, args, context) {
-        const { chatId, channelInfo } = context;
-        const data = loadAionData();
-
-        if (!data.chats[chatId]) {
+        const { chatId } = context;
+        const chats = await getAutoAiChats();
+        if (!chats[chatId]) {
             return sock.sendMessage(chatId, {
-                text: '⚠️ *AI is not ON for this chat.*\n\nUse *.aion* to enable it.',
-                ...channelInfo
+                text: '⚠️ AI auto-reply is already *OFF* in this chat.\nUse *.aion* to enable it.'
             }, { quoted: message });
         }
-
-        delete data.chats[chatId];
-        saveAionData(data);
-
+        delete chats[chatId];
+        await setAutoAiChats(chats);
         return sock.sendMessage(chatId, {
-            text: '🔴 *AI Mode OFF!*\n\nI will no longer auto-reply in this chat.\n\n_Use *.aion* to re-enable._',
-            ...channelInfo
+            text: `❌ *AI Auto-Reply: OFF*\n\n` +
+                `I will no longer auto-reply to messages in this chat.\n\n` +
+                `Use *.aion* to turn back on.`
         }, { quoted: message });
     }
 };
