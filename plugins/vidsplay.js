@@ -2,7 +2,7 @@ import axios from 'axios';
 export default {
     command: 'vidsplay',
     aliases: ['vidsplaydl', 'vidsplayvideo'],
-    category: 'music',
+    category: 'download',
     description: 'Download video and thumbnail from Vidsplay',
     usage: '.vidsplay <Vidsplay URL>',
     async handler(sock, message, args, context) {
