@@ -55,7 +55,7 @@ export async function handleTicTacToeMove(sock, chatId, senderId, text) {
             gameStatus = `🤝 Game ended in a draw!`;
         }
         else {
-            gameStatus = `🎲 Turn: @${room.game.currentTurn.split('@')[0]} (${room.game.currentTurn === room.game.playerX ? '❎' : '⭕'})`;
+            gameStatus = `🎲 Turn: @${room.game.currentTurn.split('@')[0]} (${senderId === room.game.playerX ? '❎' : '⭕'})`;
         }
         const str = `
 🎮 *TicTacToe Game*
