@@ -213,7 +213,7 @@ async function startTrailerBot() {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
             },
-            markOnlineOnConnect: !isGhostActive,
+            markOnlineOnConnect: false, // never displace phone as active device
             generateHighQualityLinkPreview: true,
             syncFullHistory: false,
             getMessage: async (key) => {
@@ -224,7 +224,7 @@ async function startTrailerBot() {
             msgRetryCounterCache,
             defaultQueryTimeoutMs: 60000,
             connectTimeoutMs: 60000,
-            keepAliveIntervalMs: 10000,
+            keepAliveIntervalMs: 25000, // 25s — less aggressive, matches WhatsApp Web default
         });
         JamBot.store = store;
         setSocket(JamBot); _currentSocket = JamBot; // expose socket to web /pair endpoint immediately
