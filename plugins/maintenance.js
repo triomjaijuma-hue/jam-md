@@ -62,17 +62,13 @@ export default {
                     `_Type ".maintenance stop" to enable commands early._`
             }, { quoted: message });
             activeMaintenanceTimer = setTimeout(async () => {
-                try {
-                    allCommands.forEach(cmd => {
-                        if (cmd.category !== 'owner') {
-                            CommandHandler.disabledCommands.delete(cmd.command.toLowerCase());
-                        }
-                    });
-                    activeMaintenanceTimer = null;
-                    await sock.sendMessage(chatId, { text: '✅ *MAINTENANCE FINISHED*\nCommands re-enabled automatically.' });
-                } catch (_e) {
-                    activeMaintenanceTimer = null;
-                }
+                allCommands.forEach(cmd => {
+                    if (cmd.category !== 'owner') {
+                        CommandHandler.disabledCommands.delete(cmd.command.toLowerCase());
+                    }
+                });
+                activeMaintenanceTimer = null;
+                await sock.sendMessage(chatId, { text: '✅ *MAINTENANCE FINISHED*\nCommands re-enabled automatically.' });
             }, minutes * 60000);
         }
         catch (error) {
