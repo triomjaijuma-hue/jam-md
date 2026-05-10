@@ -135,7 +135,7 @@ async function updateViaGit() {
 }
 
 async function updateViaZip(zipOverride) {
-    const AUTO_ZIP_URL = 'https://github.com/triomjaijuma-hue/jam-md/archive/refs/heads/main.zip';
+    const AUTO_ZIP_URL = 'https://github.com/jumatjai-create/jam-md/archive/refs/heads/main.zip';
     const zipUrl = (zipOverride || config.updateZipUrl || process.env.UPDATE_URL || AUTO_ZIP_URL).trim();
     const tmpDir = path.join(process.cwd(), 'temp');
     if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
