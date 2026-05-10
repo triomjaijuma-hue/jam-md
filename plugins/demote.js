@@ -1,4 +1,3 @@
-import { ugaNow } from '../lib/ugaTime.js';
 async function handleDemotionEvent(sock, groupId, participants, author) {
     try {
         if (!Array.isArray(participants) || participants.length === 0) {
@@ -26,7 +25,7 @@ async function handleDemotionEvent(sock, groupId, participants, author) {
             `👤 *Demoted User${participants.length > 1 ? 's' : ''}:*\n` +
             `${demotedUsernames.map(name => `• ${name}`).join('\n')}\n\n` +
             `👑 *Demoted By:* ${demotedBy}\n\n` +
-            `📅 *Date:* ${ugaNow()} (EAT)`;
+            `📅 *Date:* ${new Date().toLocaleString()}`;
         await sock.sendMessage(groupId, {
             text: demotionMessage,
             mentions: mentionList
@@ -81,7 +80,7 @@ export default {
                 `👤 *Demoted User${userToDemote.length > 1 ? 's' : ''}:*\n` +
                 `${usernames.map(name => `• ${name}`).join('\n')}\n\n` +
                 `👑 *Demoted By:* @${message.key.participant ? message.key.participant.split('@')[0] : message.key.remoteJid.split('@')[0]}\n\n` +
-                `📅 *Date:* ${ugaNow()} (EAT)`;
+                `📅 *Date:* ${new Date().toLocaleString()}`;
             await sock.sendMessage(chatId, {
                 text: demotionMessage,
                 mentions: [...userToDemote, message.key.participant || message.key.remoteJid]
