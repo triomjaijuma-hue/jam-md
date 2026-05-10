@@ -51,7 +51,7 @@ const animuMenu = '🎀 *Animes Menu* 🎀\n\n' +
 export default {
     command: 'animes',
     aliases: ['animeimg', 'animepic'],
-    category: 'images',
+    category: 'menu',
     description: 'Send random anime images',
     usage: '.animes <anime_name>',
     async handler(sock, message, args, context) {
