@@ -1,12 +1,26 @@
 import config from '../config.js';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import https from 'https';
 
-function run(cmd) {
+// ---------------------------------------------------------------------------
+// Shell execution — uses Bun.$ on bun (child_process.exec hangs on wispbyte)
+// ---------------------------------------------------------------------------
+async function run(cmd) {
+    if (typeof globalThis.Bun !== 'undefined') {
+        try {
+            const { $ } = await import('bun');
+            const result = await $`sh -c ${cmd}`.quiet().nothrow();
+            if (result.exitCode !== 0) {
+                const errText = result.stderr.toString().trim() || result.stdout.toString().trim();
+                throw new Error(errText || `Command exited with code ${result.exitCode}`);
+            }
+            return result.stdout.toString();
+        } catch (e) {
+            if (e.message) throw e;
+            throw new Error(String(e));
+        }
+    }
+    const { exec } = await import('child_process');
     return new Promise((resolve, reject) => {
         exec(cmd, { windowsHide: true }, (err, stdout, stderr) => {
             if (err) return reject(new Error((stderr || stdout || err.message || '').toString()));
@@ -15,6 +29,9 @@ function run(cmd) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 async function hasGitRepo() {
     const gitDir = path.join(process.cwd(), '.git');
     if (!fs.existsSync(gitDir)) return false;
@@ -22,47 +39,53 @@ async function hasGitRepo() {
     catch { return false; }
 }
 
-async function updateViaGit() {
-    const oldRev = String(await run('git rev-parse HEAD').catch(() => 'unknown')).trim();
-    await run('git fetch --all --prune');
-    const newRev = String(await run('git rev-parse origin/main')).trim();
-    const alreadyUpToDate = oldRev === newRev;
-    const commits = alreadyUpToDate ? '' : await run(`git log --pretty=format:"%h %s (%an)" ${oldRev}..${newRev}`).catch(() => '');
-    const files = alreadyUpToDate ? '' : await run(`git diff --name-status ${oldRev} ${newRev}`).catch(() => '');
-    // git stash session protection (should already be gitignored, but belt-and-suspenders)
-    await run(`git reset --hard ${newRev}`);
-    await run('git clean -fd --exclude=session --exclude=data --exclude=temp');
-    return { oldRev, newRev, alreadyUpToDate, commits, files };
+function isBun() {
+    return typeof globalThis.Bun !== 'undefined';
 }
 
-function downloadFile(url, dest, visited = new Set()) {
-    return new Promise((resolve, reject) => {
-        try {
-            if (visited.has(url) || visited.size > 5) return reject(new Error('Too many redirects'));
-            visited.add(url);
-            const useHttps = url.startsWith('https://');
-            const http = require('http');
-            const client = useHttps ? https : http;
-            const req = client.get(url, {
-                headers: { 'User-Agent': 'JAM-MD-Updater/1.0', 'Accept': '*/*' }
-            }, (res) => {
-                if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
-                    const location = res.headers.location;
-                    if (!location) return reject(new Error(`HTTP ${res.statusCode} without Location`));
-                    res.resume();
-                    return downloadFile(new URL(location, url).toString(), dest, visited).then(resolve).catch(reject);
-                }
-                if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
-                const file = fs.createWriteStream(dest);
-                res.pipe(file);
-                file.on('finish', () => file.close(resolve));
-                file.on('error', (err) => { try { file.close(() => {}); } catch {} fs.unlink(dest, () => reject(err)); });
-            });
-            req.on('error', (err) => { fs.unlink(dest, () => reject(err)); });
-        } catch (e) { reject(e); }
+function getPlatformName() {
+    if (isBun()) return 'Wispbyte/Bun';
+    if (fs.existsSync('/.dockerenv')) return 'Pterodactyl/Docker';
+    return process.platform;
+}
+
+function getInstallCmd() {
+    return isBun() ? 'bun install' : 'npm install --no-audit --no-fund';
+}
+
+// ---------------------------------------------------------------------------
+// Download — uses bun's native fetch on bun, axios on Node
+// ---------------------------------------------------------------------------
+async function downloadFile(url, dest) {
+    if (isBun()) {
+        const response = await fetch(url, {
+            headers: { 'User-Agent': 'JAM-MD-Updater/1.0', 'Accept': '*/*' },
+            redirect: 'follow',
+        });
+        if (!response.ok) throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+        const arrayBuffer = await response.arrayBuffer();
+        fs.writeFileSync(dest, Buffer.from(arrayBuffer));
+        return;
+    }
+    const axios = (await import('axios')).default;
+    const response = await axios.get(url, {
+        responseType: 'stream',
+        timeout: 60000,
+        maxRedirects: 10,
+        headers: { 'User-Agent': 'JAM-MD-Updater/1.0', 'Accept': '*/*' }
+    });
+    await new Promise((resolve, reject) => {
+        const file = fs.createWriteStream(dest);
+        response.data.pipe(file);
+        file.on('finish', () => file.close(resolve));
+        file.on('error', (err) => { try { file.close(() => {}); } catch {} fs.unlink(dest, () => reject(err)); });
+        response.data.on('error', reject);
     });
 }
 
+// ---------------------------------------------------------------------------
+// ZIP extraction
+// ---------------------------------------------------------------------------
 async function extractZip(zipPath, outDir) {
     if (process.platform === 'win32') {
         await run(`powershell -NoProfile -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${outDir.replace(/\\/g, '/')}' -Force"`);
@@ -75,9 +98,12 @@ async function extractZip(zipPath, outDir) {
     ]) {
         try { await run(check); await run(cmd); return; } catch { continue; }
     }
-    throw new Error('No unzip tool found (unzip/7z/busybox).');
+    throw new Error('No unzip tool found (unzip/7z/busybox). Please install unzip on your server.');
 }
 
+// ---------------------------------------------------------------------------
+// File copy (preserving ignored paths)
+// ---------------------------------------------------------------------------
 function copyRecursive(src, dest, ignore = [], relative = '', outList = []) {
     if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
     for (const entry of fs.readdirSync(src)) {
@@ -93,9 +119,23 @@ function copyRecursive(src, dest, ignore = [], relative = '', outList = []) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Update strategies
+// ---------------------------------------------------------------------------
+async function updateViaGit() {
+    const oldRev = String(await run('git rev-parse HEAD').catch(() => 'unknown')).trim();
+    await run('git fetch --all --prune');
+    const newRev = String(await run('git rev-parse origin/main')).trim();
+    const alreadyUpToDate = oldRev === newRev;
+    const commits = alreadyUpToDate ? '' : await run(`git log --pretty=format:"%h %s (%an)" ${oldRev}..${newRev}`).catch(() => '');
+    const files = alreadyUpToDate ? '' : await run(`git diff --name-status ${oldRev} ${newRev}`).catch(() => '');
+    await run(`git reset --hard ${newRev}`);
+    await run('git clean -fd --exclude=session --exclude=data --exclude=temp');
+    return { oldRev, newRev, alreadyUpToDate, commits, files };
+}
+
 async function updateViaZip(zipOverride) {
-    // Auto-detect public repo ZIP URL — no UPDATE_URL variable needed
-    const AUTO_ZIP_URL = 'https://github.com/jumatjai-create/jam-md/archive/refs/heads/main.zip';
+    const AUTO_ZIP_URL = 'https://github.com/triomjaijuma-hue/jam-md/archive/refs/heads/main.zip';
     const zipUrl = (zipOverride || config.updateZipUrl || process.env.UPDATE_URL || AUTO_ZIP_URL).trim();
     const tmpDir = path.join(process.cwd(), 'temp');
     if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
@@ -106,10 +146,8 @@ async function updateViaZip(zipOverride) {
     await extractZip(zipPath, extractTo);
     const [root] = fs.readdirSync(extractTo).map(n => path.join(extractTo, n));
     const srcRoot = fs.existsSync(root) && fs.lstatSync(root).isDirectory() ? root : extractTo;
-    // NEVER overwrite session, data, temp — session preservation is critical!
     const ignore = ['node_modules', '.git', 'session', 'data', 'tmp', 'temp', 'baileys_store.json'];
     const copied = [];
-    // Preserve owner & bot settings from current config
     let preservedOwner = null;
     let preservedBotOwner = null;
     try {
@@ -135,52 +173,32 @@ async function updateViaZip(zipOverride) {
     return { copiedFiles: copied };
 }
 
-/**
- * Restart strategy — works on Wispbyte, Railway, Render, VPS, and plain Docker.
- *
- * Order of attempts:
- *  1. pm2 (VPS with process manager)
- *  2. Spawn a detached child and exit the parent — works on any platform
- *     including Wispbyte containers without needing platform-specific env vars.
- *  3. Exit with code 0 — most PaaS platforms (Wispbyte, Render, Railway)
- *     restart the service when the process exits cleanly.
- *
- * Session and data directories are preserved across restarts because they
- * live on the container's own filesystem (not rebuilt on restart).
- */
 async function restartProcess() {
-    // 1. pm2 — VPS setups
-    try { await run('pm2 restart all'); return; } catch {}
-
-    // 2. Spawn a detached child process and let the parent exit.
-    //    This is the most reliable method across all platforms (Wispbyte,
-    //    Railway, Render, VPS) because it does not depend on the host's
-    //    auto-restart policy — the new process is already running before
-    //    the old one exits.
-    try {
-        const { spawn } = await import('child_process');
-        const child = spawn(process.execPath, process.argv.slice(1), {
-            detached: true,
-            stdio: 'ignore',
-            cwd: process.cwd(),
-            env: process.env
-        });
-        child.unref();
-        // Give the child ~2 s to start, then exit the parent cleanly
-        setTimeout(() => process.exit(0), 2000);
+    if (isBun()) {
+        // Wispbyte: exit code 1 triggers crash detection and auto-restart.
+        // exit(0) is treated as a normal stop — wispbyte will NOT restart it.
+        setTimeout(() => process.exit(1), 2500);
         return;
-    } catch (_spawnErr) {}
-
-    // 3. Last resort: exit and rely on the platform's auto-restart policy.
-    //    Exit code 0 is recognised as "clean restart" by most PaaS platforms.
-    setTimeout(() => process.exit(0), 800);
+    }
+    const script = process.argv[1] || 'index.js';
+    const nodeExe = process.execPath;
+    const cmd = `nohup ${nodeExe} "${script}" </dev/null >>/proc/1/fd/1 2>&1 &`;
+    await new Promise(resolve => {
+        import('child_process').then(({ exec }) => {
+            exec(cmd, { shell: '/bin/sh', env: process.env }, resolve);
+        });
+    });
+    setTimeout(() => process.exit(0), 2000);
 }
 
+// ---------------------------------------------------------------------------
+// Plugin export
+// ---------------------------------------------------------------------------
 export default {
     command: 'update',
     aliases: ['upgrade', 'restart'],
     category: 'owner',
-    description: 'Update JAM-MD from your repo and auto-restart (session preserved)',
+    description: 'Update JAM-MD from GitHub and auto-restart (session preserved)',
     usage: '.update [zip_url]',
     ownerOnly: true,
     async handler(sock, message, args, context) {
@@ -191,13 +209,14 @@ export default {
             }, { quoted: message });
 
             let summary = '';
+            let copiedFiles;
 
             if (await hasGitRepo()) {
                 const { oldRev, newRev, alreadyUpToDate, commits, files } = await updateViaGit();
                 if (alreadyUpToDate) {
                     summary = `✅ *Already up to date!*\nCurrent revision: \`${newRev.substring(0, 7)}\``;
                 } else {
-                    summary = `✅ *Updated successfully!*\n\n📌 Old: \`${oldRev.substring(0, 7)}\`\n📌 New: \`${newRev.substring(0, 7)}\`\n`;
+                    summary = `✅ *Updated via git!*\n\n📌 Old: \`${oldRev.substring(0, 7)}\`\n📌 New: \`${newRev.substring(0, 7)}\`\n`;
                     if (commits) {
                         const lines = String(commits).split('\n').slice(0, 5);
                         summary += `\n📝 *Changes:*\n${lines.map(c => `• ${c}`).join('\n')}`;
@@ -207,25 +226,38 @@ export default {
                         summary += `\n\n📁 *Files:* ${fl.length} changed`;
                     }
                 }
-                await run('npm install --no-audit --no-fund').catch(() => {});
+                await run(getInstallCmd()).catch(() => {});
             } else {
                 const zipOverride = args[0] || null;
-                const { copiedFiles } = await updateViaZip(zipOverride);
+                ({ copiedFiles } = await updateViaZip(zipOverride));
                 summary = `✅ *Updated from ZIP!*\n\n📁 Files updated: ${copiedFiles.length}`;
                 if (copiedFiles.length > 0) {
                     const shown = copiedFiles.slice(0, 8);
                     summary += `\n${shown.map(f => `• ${f}`).join('\n')}`;
                     if (copiedFiles.length > 8) summary += `\n... and ${copiedFiles.length - 8} more`;
                 }
-                await run('npm install --no-audit --no-fund').catch(() => {});
+                await run(getInstallCmd()).catch(() => {});
             }
 
             summary += `\n\n🔖 Version: ${config.version || 'unknown'}`;
 
+            try {
+                const dataDir = path.join(process.cwd(), 'data');
+                if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+                fs.writeFileSync(
+                    path.join(dataDir, 'last_update.json'),
+                    JSON.stringify({
+                        timestamp: new Date().toISOString(),
+                        version: config.version || 'unknown',
+                        filesUpdated: Array.isArray(copiedFiles) ? copiedFiles.length : '?',
+                        platform: getPlatformName(),
+                        stayedOnline: true,
+                    }, null, 2)
+                );
+            } catch {}
+
             await sock.sendMessage(chatId, {
-                text: `${summary}\n\n♻️ *Restarting JAM-MD…*\n\n` +
-                    `_Your session is preserved — no new pairing code needed._\n` +
-                    `_Bot will be back online in a few seconds._`
+                text: `${summary}\n\n♻️ *Restarting JAM-MD…*\n\n_Your session is preserved — no new pairing code needed._\n_Bot will be back online in a few seconds._`
             }, { quoted: message });
 
             await new Promise(r => setTimeout(r, 2000));
