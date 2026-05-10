@@ -54,19 +54,49 @@ function getInstallCmd() {
 }
 
 // ---------------------------------------------------------------------------
-// Download — uses bun's native fetch on bun, axios on Node
+// Download — Bun on Wispbyte does not follow cross-domain redirects reliably
+// (github.com → codeload.github.com returns 404 when redirect is "followed").
+// We resolve the redirect manually: fetch with redirect:'manual', read the
+// Location header, then fetch the final URL directly.
 // ---------------------------------------------------------------------------
 async function downloadFile(url, dest) {
     if (isBun()) {
-        const response = await fetch(url, {
-            headers: { 'User-Agent': 'JAM-MD-Updater/1.0', 'Accept': '*/*' },
+        // Step 1 — resolve any redirect manually
+        let finalUrl = url;
+        try {
+            const probe = await fetch(url, {
+                method: 'GET',
+                headers: { 'User-Agent': 'JAM-MD-Updater/1.0', 'Accept': '*/*' },
+                redirect: 'manual',
+            });
+            // 3xx → follow Location header ourselves
+            if (probe.status >= 300 && probe.status < 400) {
+                const location = probe.headers.get('location');
+                if (location) finalUrl = location;
+            } else if (probe.ok) {
+                // No redirect — just use the data we already have
+                const arrayBuffer = await probe.arrayBuffer();
+                if (arrayBuffer.byteLength === 0) throw new Error('Download failed: empty response');
+                fs.writeFileSync(dest, Buffer.from(arrayBuffer));
+                return;
+            }
+        } catch (probeErr) {
+            // If manual-redirect probe fails entirely, fall through to direct fetch
+        }
+
+        // Step 2 — fetch the resolved (possibly redirected) URL
+        const response = await fetch(finalUrl, {
+            headers: { 'User-Agent': 'JAM-MD-Updater/1.0', 'Accept': 'application/zip,application/octet-stream,*/*' },
             redirect: 'follow',
         });
         if (!response.ok) throw new Error(`Download failed: ${response.status} ${response.statusText}`);
         const arrayBuffer = await response.arrayBuffer();
+        if (arrayBuffer.byteLength === 0) throw new Error('Download failed: empty response body');
         fs.writeFileSync(dest, Buffer.from(arrayBuffer));
         return;
     }
+
+    // Node path (Railway, Heroku, Docker, etc.)
     const axios = (await import('axios')).default;
     const response = await axios.get(url, {
         responseType: 'stream',
@@ -135,12 +165,34 @@ async function updateViaGit() {
 }
 
 async function updateViaZip(zipOverride) {
-    const AUTO_ZIP_URL = 'https://github.com/jumatjai-create/jam-md/archive/refs/heads/main.zip';
-    const zipUrl = (zipOverride || config.updateZipUrl || process.env.UPDATE_URL || AUTO_ZIP_URL).trim();
+    // Use codeload.github.com directly — this is where github.com redirects to,
+    // but Bun on Wispbyte fails to follow that cross-domain 302 automatically.
+    // Pointing here directly avoids the redirect entirely.
+    const OWNER = 'jumatjai-create';
+    const REPO  = 'jam-md';
+    const BRANCH = 'main';
+    const AUTO_ZIP_URL = `https://codeload.github.com/${OWNER}/${REPO}/zip/refs/heads/${BRANCH}`;
+    // GitHub API zipball is a reliable fallback (requires no auth for public repos)
+    const API_ZIP_URL  = `https://api.github.com/repos/${OWNER}/${REPO}/zipball/${BRANCH}`;
+
+    const zipUrl = (zipOverride || config.updateZipUrl || process.env.UPDATE_URL || '').trim() || AUTO_ZIP_URL;
+
     const tmpDir = path.join(process.cwd(), 'temp');
     if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
     const zipPath = path.join(tmpDir, 'update.zip');
-    await downloadFile(zipUrl, zipPath);
+
+    // Try primary URL, fall back to API zipball on failure
+    try {
+        await downloadFile(zipUrl, zipPath);
+    } catch (primaryErr) {
+        if (zipUrl !== API_ZIP_URL) {
+            console.warn(`Primary download failed (${primaryErr.message}), retrying via API zipball…`);
+            await downloadFile(API_ZIP_URL, zipPath);
+        } else {
+            throw primaryErr;
+        }
+    }
+
     const extractTo = path.join(tmpDir, 'update_extract');
     if (fs.existsSync(extractTo)) fs.rmSync(extractTo, { recursive: true, force: true });
     await extractZip(zipPath, extractTo);
