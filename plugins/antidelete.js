@@ -92,19 +92,32 @@ async function saveAntideleteConfig(config) {
 }
 
 // ── Safe media download ────────────────────────────────────────────────────
-// Returns a Buffer or null. Never throws on empty / missing media key.
+// Returns a Buffer or null. Never throws, never hangs.
+// A 15-second timeout prevents Bad MAC / corrupted streams from blocking
+// the entire message handler (storeMessage is awaited in messageHandler.js).
+const DOWNLOAD_TIMEOUT_MS = 15_000;
+
 async function safeDownload(msgObj, mediaType) {
     if (!hasValidMediaKey(msgObj)) return null;
     try {
-        const stream = await downloadContentFromMessage(msgObj, mediaType);
-        let buffer = Buffer.from([]);
-        for await (const chunk of stream) {
-            buffer = Buffer.concat([buffer, chunk]);
-        }
-        return buffer.length > 0 ? buffer : null;
+        const downloadPromise = (async () => {
+            const stream = await downloadContentFromMessage(msgObj, mediaType);
+            let buffer = Buffer.from([]);
+            for await (const chunk of stream) {
+                buffer = Buffer.concat([buffer, chunk]);
+            }
+            return buffer.length > 0 ? buffer : null;
+        })();
+
+        const timeoutPromise = new Promise((_res, rej) =>
+            setTimeout(() => rej(new Error('download timeout')), DOWNLOAD_TIMEOUT_MS)
+        );
+
+        return await Promise.race([downloadPromise, timeoutPromise]);
     } catch (err) {
-        // Swallow media-key errors silently; log everything else
-        if (!err?.message?.toLowerCase().includes('media key')) {
+        // Swallow media-key and timeout errors silently; log everything else
+        const msg = err?.message?.toLowerCase() || '';
+        if (!msg.includes('media key') && !msg.includes('timeout')) {
             console.error(`safeDownload(${mediaType}) error:`, err.message);
         }
         return null;
