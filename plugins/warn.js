@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import store from '../lib/lightweight_store.js';
-import { ugaNow } from '../lib/ugaTime.js';
 const MONGO_URL = process.env.MONGO_URL;
 const POSTGRES_URL = process.env.POSTGRES_URL;
 const MYSQL_URL = process.env.MYSQL_URL;
@@ -82,7 +81,7 @@ export default {
                     `⚠️ *Warning Count:* ${warnings[chatId][userToWarn]}/3\n` +
                     `👑 *Warned By:* @${senderId.split('@')[0]}\n` +
                     `🗄️ *Storage:* ${HAS_DB ? 'Database' : 'File System'}\n\n` +
-                    `📅 *Date:* ${ugaNow()} (EAT)`;
+                    `📅 *Date:* ${new Date().toLocaleString()}`;
                 await sock.sendMessage(chatId, {
                     text: warningMessage,
                     mentions: [userToWarn, senderId],
