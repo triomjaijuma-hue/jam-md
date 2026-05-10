@@ -12,15 +12,15 @@ export default {
     async handler(sock, message, args, context) {
         const { chatId, channelInfo } = context;
         try {
-            // process.memoryUsage() shows the bot's own memory — accurate inside containers.
-            // os.totalmem() reads the host server (e.g. 44 GB on Wispbyte) which is wrong.
-            const memInfo = process.memoryUsage();
-            const toMB = (b) => (b / 1024 / 1024).toFixed(1);
-            const memUsed  = toMB(memInfo.rss)       + ' MB';   // Resident Set Size — real physical RAM
-            const memHeap  = toMB(memInfo.heapUsed)  + ' MB';   // JS heap in use
-            const memTotal = toMB(memInfo.heapTotal)  + ' MB';   // JS heap allocated
-            const memExt   = toMB(memInfo.external)   + ' MB';   // native/C++ memory
-            const memFree  = 'N/A (container)';
+            // Memory via os module (works everywhere, no free command needed)
+            const totalMem = os.totalmem();
+            const freeMem = os.freemem();
+            const usedMem = totalMem - freeMem;
+            const toMB = (b) => (b / 1024 / 1024).toFixed(0);
+            const toGB = (b) => (b / 1024 / 1024 / 1024).toFixed(2);
+            const memTotal = totalMem > 1073741824 ? `${toGB(totalMem) } GB` : `${toMB(totalMem) } MB`;
+            const memUsed = usedMem > 1073741824 ? `${toGB(usedMem) } GB` : `${toMB(usedMem) } MB`;
+            const memFree = freeMem > 1073741824 ? `${toGB(freeMem) } GB` : `${toMB(freeMem) } MB`;
             // Disk via df (fallback to N/A if not available)
             let diskTotal = 'N/A', diskUsed = 'N/A', diskFree = 'N/A', diskPct = 'N/A';
             try {
@@ -67,11 +67,10 @@ export default {
 ⚙️ *Cores:* ${cpuCores}
 📊 *Load Avg:* ${loadAvg}
 
-━━━━━━ 💾 Bot Memory (container) ━━━━━━
-📦 *RSS (Physical):* ${memUsed}
-🟡 *Heap Used:* ${memHeap}
-🟢 *Heap Total:* ${memTotal}
-🔌 *External:* ${memExt}
+━━━━━━ 💾 Memory ━━━━━━
+📦 *Total:* ${memTotal}
+🔴 *Used:* ${memUsed}
+🟢 *Free:* ${memFree}
 
 ━━━━━━ 💿 Disk (/) ━━━━━━
 📦 *Total:* ${diskTotal}
