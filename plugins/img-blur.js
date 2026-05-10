@@ -1,5 +1,12 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
-import sharp from 'sharp';
+let _sharp = null;
+async function getSharp() {
+    if (!_sharp) {
+        try { _sharp = (await import('sharp')).default; }
+        catch { throw new Error('sharp not installed'); }
+    }
+    return _sharp;
+}
 export default {
     command: 'blur',
     aliases: ['blurimg', 'blurpic'],
@@ -24,6 +31,8 @@ export default {
                 }, { quoted: message });
                 return;
             }
+            const sharp = await getSharp();
+
             const resizedImage = await sharp(imageBuffer)
                 .resize(800, 800, {
                 fit: 'inside',
