@@ -1,31 +1,35 @@
 /**
  * antisleep.js — keeps JAM-MD alive on Orihost/Pterodactyl.
  *
- * How sleep prevention works on Pterodactyl:
- *   - The bot CANNOT ping its own external IP from inside the container.
- *     (Pterodactyl doesn't support hairpin NAT.)
- *   - Local /health ping every 2 min keeps the Node.js event loop busy.
- *   - cron-job.org pings the public IP from outside every 5 min.
- *   - If CPU hits 80% for 2 consecutive checks (60 s), bot auto-restarts
- *     via process.exit(1) — Pterodactyl brings it back automatically.
+ * Guards:
+ *   - Local /health ping every 2 min (keeps Node.js event loop busy)
+ *   - CPU guard: auto-restart via process.exit(1) if CPU >= 80% for 60s
+ *   - Disk guard: auto-clean /tmp at 85%, warn owner at 80%, restart at 95%
+ *   - cron-job.org pings public IP from outside every 5 min
  *
  * Commands:
- *   .antisleep          — show status + cron-job.org setup guide
+ *   .antisleep          — show full status (CPU, RAM, disk, uptime)
  *   .antisleep on/off   — toggle local keepalive pinging
- *   .antisleep url <u>  — save your public URL (shown in cron guide)
- *   .antisleep test     — test local /health ping right now
- *   .antisleep cron     — show step-by-step cron-job.org setup
+ *   .antisleep url <u>  — save public URL for cron-job.org guide
+ *   .antisleep test     — test local /health ping + show system stats
+ *   .antisleep cron     — show cron-job.org step-by-step setup
+ *   .antisleep clean    — manually free tmp/session/media files right now
  */
 
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { execSync } from 'child_process';
 
 const DATA_FILE = path.join(process.cwd(), 'data', 'antisleep.json');
+const HOME      = process.env.HOME || '/home/container';
 
-// ── CPU threshold ─────────────────────────────────────────────────────────────
-const CPU_RESTART_THRESHOLD = 80;   // restart if CPU >= this
-const CPU_CHECKS_BEFORE_RESTART = 2; // must be high for N consecutive 30-s checks
+// ── Thresholds ────────────────────────────────────────────────────────────────
+const CPU_WARN_PCT      = 80;
+const CPU_CHECKS_LIMIT  = 2;   // consecutive 30-s checks before restart
+const DISK_WARN_PCT     = 80;  // warn owner via console
+const DISK_CLEAN_PCT    = 85;  // auto-clean tmp/media
+const DISK_RESTART_PCT  = 95;  // restart to release any file handles
 
 // ── Persistent state ──────────────────────────────────────────────────────────
 function loadState() {
@@ -61,18 +65,89 @@ function getCpuPercent() {
     return Math.round(((totalDiff - idleDiff) / totalDiff) * 100);
 }
 
+// ── Disk usage ────────────────────────────────────────────────────────────────
+function getDiskUsage() {
+    try {
+        // Node 19+ has statfsSync; fall back to df if not available
+        if (fs.statfsSync) {
+            const s = fs.statfsSync(HOME);
+            const total = s.blocks * s.bsize;
+            const free  = s.bfree  * s.bsize;
+            const used  = total - free;
+            return {
+                usedPct: Math.round((used / total) * 100),
+                freeMB:  Math.round(free  / 1024 / 1024),
+                totalMB: Math.round(total / 1024 / 1024),
+            };
+        }
+    } catch {}
+    try {
+        const out = execSync(`df -k "${HOME}" 2>/dev/null | tail -1`).toString().trim().split(/\s+/);
+        const total = parseInt(out[1]) * 1024;
+        const used  = parseInt(out[2]) * 1024;
+        const free  = parseInt(out[3]) * 1024;
+        return {
+            usedPct: Math.round((used / total) * 100),
+            freeMB:  Math.round(free  / 1024 / 1024),
+            totalMB: Math.round(total / 1024 / 1024),
+        };
+    } catch {}
+    return null;
+}
+
+// ── Auto-clean routine ────────────────────────────────────────────────────────
+function autoClean() {
+    let freed = 0;
+    const dirs = [
+        path.join(HOME, 'tmp'),
+        path.join(process.cwd(), 'tmp'),
+        '/tmp',
+    ];
+    const mediaExts = ['.mp4', '.mp3', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.ogg', '.opus'];
+
+    for (const dir of dirs) {
+        try {
+            if (!fs.existsSync(dir)) continue;
+            for (const f of fs.readdirSync(dir)) {
+                const fp = path.join(dir, f);
+                try {
+                    const stat = fs.statSync(fp);
+                    if (stat.isFile()) {
+                        freed += stat.size;
+                        fs.unlinkSync(fp);
+                    }
+                } catch {}
+            }
+        } catch {}
+    }
+
+    // Also remove stale media files from working directory
+    try {
+        for (const f of fs.readdirSync(process.cwd())) {
+            if (mediaExts.includes(path.extname(f).toLowerCase())) {
+                try {
+                    const fp = path.join(process.cwd(), f);
+                    freed += fs.statSync(fp).size;
+                    fs.unlinkSync(fp);
+                } catch {}
+            }
+        }
+    } catch {}
+
+    return Math.round(freed / 1024 / 1024); // MB freed
+}
+
 // ── Local health ping ─────────────────────────────────────────────────────────
 async function pingLocal(port, timeoutMs = 8000) {
-    const url = `http://localhost:${port}/health`;
     const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), timeoutMs);
+    const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-        const res = await fetch(url, { signal: ctrl.signal });
+        const res = await fetch(`http://localhost:${port}/health`, { signal: ctrl.signal });
         clearTimeout(tid);
-        return { ok: res.ok, status: res.status, url };
+        return { ok: res.ok, status: res.status };
     } catch (err) {
         clearTimeout(tid);
-        return { ok: false, error: err.message, url };
+        return { ok: false, error: err.message };
     }
 }
 
@@ -83,42 +158,56 @@ function startLoop() {
     _loopStarted = true;
 
     const port = Number(process.env.PORT) || 5000;
-    let highCpuStreak = 0; // consecutive high-CPU checks
+    let highCpuStreak   = 0;
+    let diskWarnedOnce  = false;
 
-    // ── Keepalive ping every 2 minutes ──
+    // ── Keepalive ping every 2 minutes ──────────────────────────────────────
     const ping = async () => {
         const { enabled } = loadState();
-        if (!enabled) return;
-        await pingLocal(port);
+        if (enabled) await pingLocal(port);
     };
     ping();
     setInterval(ping, 2 * 60 * 1000);
 
-    // ── CPU guard every 30 seconds ──
+    // ── CPU + Disk guard every 30 seconds ────────────────────────────────────
     setInterval(() => {
-        const pct = getCpuPercent();
-
-        if (pct >= CPU_RESTART_THRESHOLD) {
+        // CPU check
+        const cpu = getCpuPercent();
+        if (cpu >= CPU_WARN_PCT) {
             highCpuStreak++;
-            console.warn(
-                `[antisleep] ⚠️ CPU ${pct}% — above ${CPU_RESTART_THRESHOLD}% ` +
-                `(${highCpuStreak}/${CPU_CHECKS_BEFORE_RESTART} checks)`
-            );
-
-            if (highCpuStreak >= CPU_CHECKS_BEFORE_RESTART) {
-                console.warn(
-                    `[antisleep] 🔄 CPU sustained at ${pct}% for ` +
-                    `${highCpuStreak * 30}s — triggering restart to clear load`
-                );
-                // Give Pterodactyl 2 s to log the message, then exit.
-                // Exit code 1 → Pterodactyl auto-restarts the container.
+            console.warn(`[antisleep] ⚠️ CPU ${cpu}% (${highCpuStreak}/${CPU_CHECKS_LIMIT})`);
+            if (highCpuStreak >= CPU_CHECKS_LIMIT) {
+                console.warn(`[antisleep] 🔄 CPU sustained ${cpu}% — restarting`);
                 setTimeout(() => process.exit(1), 2000);
+                return;
             }
         } else {
-            if (highCpuStreak > 0) {
-                console.log(`[antisleep] ✅ CPU back to ${pct}% — streak reset`);
-            }
+            if (highCpuStreak > 0) console.log(`[antisleep] ✅ CPU back to ${cpu}%`);
             highCpuStreak = 0;
+        }
+
+        // Disk check
+        const disk = getDiskUsage();
+        if (!disk) return;
+
+        if (disk.usedPct >= DISK_RESTART_PCT) {
+            console.warn(`[antisleep] 🚨 Disk ${disk.usedPct}% — restarting to release handles`);
+            setTimeout(() => process.exit(1), 2000);
+            return;
+        }
+
+        if (disk.usedPct >= DISK_CLEAN_PCT) {
+            const freed = autoClean();
+            console.warn(`[antisleep] 🧹 Disk ${disk.usedPct}% — auto-cleaned tmp/media, freed ~${freed} MB`);
+            diskWarnedOnce = false;
+            return;
+        }
+
+        if (disk.usedPct >= DISK_WARN_PCT && !diskWarnedOnce) {
+            diskWarnedOnce = true;
+            console.warn(`[antisleep] ⚠️ Disk ${disk.usedPct}% used — only ${disk.freeMB} MB free. Run .antisleep clean`);
+        } else if (disk.usedPct < DISK_WARN_PCT) {
+            diskWarnedOnce = false;
         }
     }, 30 * 1000);
 }
@@ -130,18 +219,20 @@ function cronGuide(publicUrl) {
     return [
         `📋 *cron-job.org Setup (free, 2 min)*`,
         ``,
-        `This pings your bot from OUTSIDE every 5 min,`,
-        `which is the only way to prevent Pterodactyl sleep.`,
-        ``,
         `1️⃣  Go to → https://cron-job.org`,
-        `2️⃣  Sign up free (no credit card)`,
+        `2️⃣  Sign up free`,
         `3️⃣  Click *Create cronjob*`,
         `4️⃣  URL: \`${healthUrl}\``,
-        `5️⃣  Execution schedule: *Every 5 minutes*`,
-        `6️⃣  Save — done ✅`,
-        ``,
-        `Your bot will stay online 24/7.`,
+        `5️⃣  Schedule: *Every 5 minutes*`,
+        `6️⃣  Save ✅`,
     ].join('\n');
+}
+
+function diskBar(pct) {
+    const filled = Math.round(pct / 10);
+    const bar    = '█'.repeat(filled) + '░'.repeat(10 - filled);
+    const icon   = pct >= DISK_RESTART_PCT ? '🚨' : pct >= DISK_CLEAN_PCT ? '🔴' : pct >= DISK_WARN_PCT ? '🟡' : '✅';
+    return `${icon} ${bar} ${pct}%`;
 }
 
 function statusText(state) {
@@ -150,35 +241,32 @@ function statusText(state) {
     const cpu  = getCpuPercent();
     const up   = Math.floor(process.uptime());
     const h = Math.floor(up / 3600), m = Math.floor((up % 3600) / 60), s = up % 60;
+    const disk = getDiskUsage();
     const url  = state.publicUrl || '';
 
-    const cpuStatus = cpu >= CPU_RESTART_THRESHOLD
-        ? `⚠️ ${cpu}% (HIGH — will restart if sustained 60s)`
-        : cpu >= 70
-        ? `🟡 ${cpu}% (elevated)`
-        : `✅ ${cpu}%`;
+    const cpuIcon = cpu >= CPU_WARN_PCT ? '⚠️' : cpu >= 70 ? '🟡' : '✅';
 
     const lines = [
         `🔋 *Anti-Sleep Status*`,
         ``,
-        `• Local ping:    ${state.enabled ? '✅ ON (every 2 min)' : '❌ OFF'}`,
-        `• CPU guard:     ✅ ON (restarts if ≥${CPU_RESTART_THRESHOLD}% for 60s)`,
-        `• Public URL:    ${url ? `\`${url}\`` : '⚠️ Not set (see cron guide below)'}`,
+        `• Keepalive: ${state.enabled ? '✅ ON (ping every 2 min)' : '❌ OFF'}`,
+        `• CPU guard: ✅ restart if ≥${CPU_WARN_PCT}% for 60s`,
+        `• Disk guard: ✅ clean at ${DISK_CLEAN_PCT}%, restart at ${DISK_RESTART_PCT}%`,
         ``,
         `📊 *System*`,
-        `• CPU:    ${cpuStatus}`,
+        `• CPU:    ${cpuIcon} ${cpu}%`,
         `• RAM:    ${Math.round(mem.rss / 1024 / 1024)} MB`,
+        `• Disk:   ${disk ? diskBar(disk.usedPct) + ` (${disk.freeMB} MB free / ${disk.totalMB} MB)` : 'unavailable'}`,
         `• Uptime: ${h}h ${m}m ${s}s`,
         ``,
-        `━━━━━━━━━━━━━━━━━━━━`,
-        ``,
-        cronGuide(url),
+        `🌐 Public URL: ${url ? `\`${url}\`` : '⚠️ Not set'}`,
         ``,
         `*Commands:*`,
-        `• \`.antisleep on/off\` — toggle local pinging`,
+        `• \`.antisleep on/off\` — toggle pinging`,
         `• \`.antisleep url http://IP:PORT\` — set public URL`,
-        `• \`.antisleep test\` — test local /health ping`,
-        `• \`.antisleep cron\` — show cron-job.org setup guide`,
+        `• \`.antisleep test\` — ping + system check`,
+        `• \`.antisleep clean\` — free tmp/media files now`,
+        `• \`.antisleep cron\` — external keepalive guide`,
     ];
     return lines.join('\n');
 }
@@ -188,97 +276,82 @@ export default {
     command: 'antisleep',
     aliases: ['keepalive', 'nosleep', 'antislp'],
     category: 'owner',
-    description: 'Keep bot alive on Orihost — ping + CPU guard (auto-restart at 80%)',
-    usage: '.antisleep [on|off|url <url>|test|cron]',
+    description: 'Keep bot alive — ping + CPU guard (80%) + disk guard (85%)',
+    usage: '.antisleep [on|off|url <url>|test|clean|cron]',
     ownerOnly: true,
     async handler(sock, message, args, context) {
         const { chatId } = context;
         const state = loadState();
         const sub   = (args[0] || '').toLowerCase();
 
-        // ── .antisleep on ──
         if (sub === 'on') {
             state.enabled = true;
             saveState(state);
             return sock.sendMessage(chatId, {
-                text: [
-                    `✅ *Local keepalive ON*`,
-                    `• /health ping every 2 min`,
-                    `• Auto-restart if CPU ≥ ${CPU_RESTART_THRESHOLD}% for 60s`,
-                    ``,
-                    `For full 24/7 uptime, set up cron-job.org:`,
-                    `_.antisleep cron_`,
-                ].join('\n')
+                text: `✅ *Keepalive ON*\n• /health ping every 2 min\n• CPU auto-restart at ${CPU_WARN_PCT}%\n• Disk auto-clean at ${DISK_CLEAN_PCT}%`
             }, { quoted: message });
         }
 
-        // ── .antisleep off ──
         if (sub === 'off') {
             state.enabled = false;
             saveState(state);
             return sock.sendMessage(chatId, {
-                text: `⏸️ *Local keepalive OFF*\n⚠️ CPU guard still active (auto-restart at ${CPU_RESTART_THRESHOLD}%).\nRe-enable pinging: _.antisleep on_`
+                text: `⏸️ *Keepalive OFF*\n⚠️ CPU & disk guards still active.`
             }, { quoted: message });
         }
 
-        // ── .antisleep url <url> ──
         if (sub === 'url') {
             const url = (args[1] || '').trim().replace(/\/$/, '');
             if (!url.startsWith('http')) {
                 return sock.sendMessage(chatId, {
-                    text: [
-                        `❌ Provide your full public URL.`,
-                        ``,
-                        `Example (your Orihost IP and port):`,
-                        `  _.antisleep url http://2.56.246.119:30003_`,
-                    ].join('\n')
+                    text: `❌ Provide full URL.\nExample: _.antisleep url http://2.56.246.119:30003_`
                 }, { quoted: message });
             }
             state.publicUrl = url;
             saveState(state);
             return sock.sendMessage(chatId, {
-                text: [
-                    `✅ *Public URL saved:* \`${url}\``,
-                    ``,
-                    `📌 Note: the bot cannot ping this URL from inside`,
-                    `the Pterodactyl container — that is normal.`,
-                    `Give this URL to cron-job.org to ping from outside:`,
-                    ``,
-                    cronGuide(url),
-                ].join('\n')
+                text: `✅ *URL saved:* \`${url}\`\n\n${cronGuide(url)}`
             }, { quoted: message });
         }
 
-        // ── .antisleep test ──
         if (sub === 'test') {
             const port = Number(process.env.PORT) || 5000;
-            await sock.sendMessage(chatId, { text: '🔍 Testing local /health ping…' }, { quoted: message });
-            const r   = await pingLocal(port);
-            const cpu = getCpuPercent();
-            const mem = Math.round(process.memoryUsage().rss / 1024 / 1024);
-            const cpuStatus = cpu >= CPU_RESTART_THRESHOLD
-                ? `⚠️ ${cpu}% — HIGH (auto-restart will trigger if sustained)`
-                : `${cpu}% — OK`;
+            await sock.sendMessage(chatId, { text: '🔍 Running checks…' }, { quoted: message });
+            const r    = await pingLocal(port);
+            const cpu  = getCpuPercent();
+            const disk = getDiskUsage();
+            const mem  = Math.round(process.memoryUsage().rss / 1024 / 1024);
             return sock.sendMessage(chatId, {
                 text: [
-                    `🔍 *Ping Test*`,
+                    `🔍 *System Check*`,
                     ``,
-                    `• Local /health: ${r.ok ? `✅ OK (${r.status})` : `❌ Failed — ${r.error || r.status}`}`,
-                    `• External ping: ℹ️ Done by cron-job.org (not testable from inside)`,
-                    ``,
-                    `📊 CPU: ${cpuStatus} | RAM: ${mem} MB`,
+                    `• /health ping: ${r.ok ? `✅ OK (${r.status})` : `❌ ${r.error || r.status}`}`,
+                    `• CPU:  ${cpu >= CPU_WARN_PCT ? '⚠️' : '✅'} ${cpu}%`,
+                    `• RAM:  ${mem} MB`,
+                    `• Disk: ${disk ? diskBar(disk.usedPct) + ` — ${disk.freeMB} MB free` : 'unavailable'}`,
                 ].join('\n')
             }, { quoted: message });
         }
 
-        // ── .antisleep cron ──
+        if (sub === 'clean') {
+            await sock.sendMessage(chatId, { text: '🧹 Cleaning tmp/media files…' }, { quoted: message });
+            const freed = autoClean();
+            const disk  = getDiskUsage();
+            return sock.sendMessage(chatId, {
+                text: [
+                    `🧹 *Cleanup Done*`,
+                    `• Freed: ~${freed} MB`,
+                    `• Disk now: ${disk ? diskBar(disk.usedPct) + ` (${disk.freeMB} MB free)` : 'unavailable'}`,
+                ].join('\n')
+            }, { quoted: message });
+        }
+
         if (sub === 'cron') {
             return sock.sendMessage(chatId, {
                 text: cronGuide(state.publicUrl)
             }, { quoted: message });
         }
 
-        // ── .antisleep (status) ──
         return sock.sendMessage(chatId, {
             text: statusText(state)
         }, { quoted: message });
