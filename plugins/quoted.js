@@ -1,5 +1,6 @@
 import axios from 'axios';
-import { Image } from 'node-webpmux';
+import webpmux from 'node-webpmux';
+const { Image } = webpmux;
 import crypto from 'crypto';
 import sharp from 'sharp';
 
