@@ -38,7 +38,7 @@ setInterval(() => {
 setInterval(() => {
     const used = process.memoryUsage().rss / 1024 / 1024;
     if (used > 900) {
-        printLog('warning', 'RAM too high (>400MB), restarting bot...');
+        printLog('warning', 'RAM too high (>900MB), restarting bot...');
         process.exit(1);
     }
 }, 30000);
@@ -219,7 +219,7 @@ async function startTrailerBot() {
             getMessage: async (key) => {
                 const jid = jidNormalizedUser(key.remoteJid);
                 const msg = await store.loadMessage(jid, key.id);
-                return msg?.message || "";
+                return msg?.message || undefined;
             },
             msgRetryCounterCache,
             defaultQueryTimeoutMs: 60000,
@@ -268,7 +268,16 @@ async function startTrailerBot() {
             const ghostMode = await store.getSetting('global', 'stealthMode');
             return ghostMode && ghostMode.enabled;
         };
-        JamBot.ev.on('creds.update', _saveCreds);
+        JamBot.ev.on('creds.update', async () => {
+            await _saveCreds();
+            // Auto-backup session to GitHub Gist so keys survive Railway restarts
+            try {
+                const { autoBackupSession } = await import('./lib/sessionBackup.js');
+                await autoBackupSession();
+            } catch (_backupErr) {
+                // Non-fatal: local save already happened above
+            }
+        });
         store.bind(JamBot.ev);
         JamBot.ev.on('messages.upsert', async (chatUpdate) => {
             try {
@@ -289,9 +298,6 @@ async function startTrailerBot() {
                 }
                 if (mek.key.id.startsWith('BAE5') && mek.key.id.length === 16)
                     return;
-                if (JamBot?.msgRetryCounterCache) {
-                    JamBot.msgRetryCounterCache.clear();
-                }
                 try {
                     await handleMessages(JamBot, chatUpdate);
                 }
