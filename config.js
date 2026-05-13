@@ -2,11 +2,11 @@ import 'dotenv/config';
 const _prefixes = process.env.PREFIXES ? process.env.PREFIXES.split(',') : ['.', '!', '/', '#'];
 const config = {
     // Bot Identity
-    botName: process.env.BOT_NAME || 'JAM-LITE',
+    botName: process.env.BOT_NAME || 'JAM-MD',
     botOwner: process.env.BOT_OWNER || 'Jaiton fangs',
     ownerNumber: process.env.OWNER_NUMBER || '256765309986',
-    author: process.env.AUTHOR || 'JAM-LITE',
-    packname: process.env.PACKNAME || 'JAM-LITE',
+    author: process.env.AUTHOR || 'JAM-MD',
+    packname: process.env.PACKNAME || 'JAM-MD',
     description: process.env.DESCRIPTION || 'High performance multi-device WhatsApp bot',
     version: '6.0.0',
     // Bot Config
@@ -17,7 +17,7 @@ const config = {
     // Links
     channelLink: process.env.CHANNEL_LINK || '',
     updateZipUrl: process.env.UPDATE_URL || '',
-    ytChannel: process.env.YT_CHANNEL || 'JAM-LITE',
+    ytChannel: process.env.YT_CHANNEL || 'JAM-MD',
     // Session
     sessionId: process.env.SESSION_ID || '',
     pairingNumber: process.env.PAIRING_NUMBER || '',
