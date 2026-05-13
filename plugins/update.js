@@ -63,7 +63,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 // GitHub API helpers
 // ---------------------------------------------------------------------------
 const OWNER  = 'jumatjai-create';
-const REPO   = 'jam-md';
+const REPO   = 'jam-lite';
 const BRANCH = 'main';
 const GH_API = `https://api.github.com/repos/${OWNER}/${REPO}`;
 const RAW_URL = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}`;
