@@ -63,7 +63,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 // GitHub API helpers
 // ---------------------------------------------------------------------------
 const OWNER  = 'jumatjai-create';
-const REPO   = 'jam-lite';
+const REPO   = 'jam-md';
 const BRANCH = 'main';
 const GH_API = `https://api.github.com/repos/${OWNER}/${REPO}`;
 const RAW_URL = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}`;
@@ -120,9 +120,11 @@ async function ghFetchRaw(filePath) {
 function readCurrentConfigValues() {
     try {
         return {
-            ownerNumber  : config?.ownerNumber   ? String(config.ownerNumber)   : null,
-            sessionId    : config?.sessionId     ? String(config.sessionId)     : null,
-            pairingNumber: config?.pairingNumber ? String(config.pairingNumber) : null,
+            ownerNumber : config?.ownerNumber  ? String(config.ownerNumber)  : null,
+            botOwner    : config?.botOwner      ? String(config.botOwner)     : null,
+            botName     : config?.botName       ? String(config.botName)      : null,
+            sessionId   : config?.sessionId     ? String(config.sessionId)    : null,
+            pairingNumber: config?.pairingNumber ? String(config.pairingNumber): null,
         };
     } catch {
         return null;
@@ -151,6 +153,8 @@ function patchConfigAfterUpdate(savedValues) {
         };
 
         patch('ownerNumber',   'OWNER_NUMBER',   savedValues.ownerNumber);
+        patch('botOwner',      'BOT_OWNER',      savedValues.botOwner);
+        patch('botName',       'BOT_NAME',       savedValues.botName);
         patch('sessionId',     'SESSION_ID',     savedValues.sessionId);
         patch('pairingNumber', 'PAIRING_NUMBER', savedValues.pairingNumber);
 
@@ -413,50 +417,12 @@ async function updateViaZip(zipOverride) {
 }
 
 // ---------------------------------------------------------------------------
-// Restart — platform-aware:
-//   Bun/Wispbyte      → process.exit(0)  (crash detection ON, auto-restarts)
-//   Docker (Wispbyte) → nohup spawn + exit(0)  (crash detection OFF, self-spawn)
-//   nodemon           → SIGUSR2  (graceful reload)
-//   other             → process.exit(1)
+// Restart — process.exit(1) triggers crash-based auto-restart on every
+// platform: Replit, Pterodactyl, Wispbyte/Bun, Railway, Heroku, PM2.
+// exit(0) = clean stop → most platforms do NOT restart on clean exit.
 // ---------------------------------------------------------------------------
 async function restartProcess() {
-    const bunRuntime   = isBun();
-    const inDocker     = !bunRuntime && fs.existsSync('/.dockerenv');
-    const underNodemon = !bunRuntime && !inDocker && !!(
-        process.env.npm_lifecycle_script?.includes('nodemon') ||
-        process.env.NODEMON
-    );
-
-    if (underNodemon) {
-        setTimeout(() => {
-            try { process.kill(process.pid, 'SIGUSR2'); } catch { process.exit(1); }
-        }, 3000);
-        return;
-    }
-
-    if (bunRuntime) {
-        setTimeout(() => process.exit(0), 3000);
-        return;
-    }
-
-    if (inDocker) {
-        // Wispbyte runs Docker — crash detection OFF, must self-spawn then exit
-        const script  = process.argv[1] || 'index.js';
-        const nodeExe = process.execPath;
-        const cmd     = `nohup ${nodeExe} "${script}" </dev/null >>/proc/1/fd/1 2>&1 &`;
-        setTimeout(async () => {
-            try {
-                const { exec } = await import('child_process');
-                await new Promise(resolve =>
-                    exec(cmd, { shell: '/bin/sh', env: process.env }, resolve)
-                );
-            } catch { /* best-effort */ }
-            process.exit(0);
-        }, 3000);
-        return;
-    }
-
-    setTimeout(() => process.exit(1), 3000);
+    setTimeout(() => process.exit(1), 2500);
 }
 
 // ---------------------------------------------------------------------------
