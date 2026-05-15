@@ -63,7 +63,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 // GitHub API helpers
 // ---------------------------------------------------------------------------
 const OWNER  = 'jumatjai-create';
-const REPO   = 'jam-lite';
+const REPO   = 'jam-md';
 const BRANCH = 'main';
 const GH_API = `https://api.github.com/repos/${OWNER}/${REPO}`;
 const RAW_URL = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}`;
@@ -81,7 +81,7 @@ function isProtected(filePath) {
 
 async function ghFetch(url) {
     const headers = { 'User-Agent': 'JAM-MD-Updater/1.0', 'Accept': 'application/vnd.github.v3+json' };
-    const token = process.env.GITHUB_TOKEN;
+    const token = process.env.GITHUB_TOKEN || process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const ctrl = new AbortController();
