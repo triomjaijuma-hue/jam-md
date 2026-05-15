@@ -16,6 +16,77 @@ import fs from 'fs';
       { name: 'LlamaAPI', url: t => `https://discardapi.dpdns.org/api/bot/llama?apikey=guru&text=${encodeURIComponent(t)}`, parse: d => d?.result }
   ];
 
+  // ── Greeting interceptor — bypasses AI entirely for simple hellos ─────────────
+  const GREETING_PATTERNS = [
+      /^(hey+|hi+|hello+|helo+|holla+|hola+|sup|what'?s up|wassup|yo+|oya|howdy)[s!?.]*$/i,
+      /^(good\s?(morning|afternoon|evening|night|day))[s!?.]*$/i,
+      /^(morning|afternoon|evening|night)[s!?.]*$/i,
+      /^(hie|hye|hai|heya|heyy+|hiii+|hihi|heyyy+)[s!?.]*$/i,
+      /^(ola|salut|bonjour|ciao|namaste|salam|shalom)[s!?.]*$/i,
+  ];
+
+  const GREETING_REPLIES = [
+      'Hey! How are you doing? 😊',
+      'Hey! How's everything going?',
+      'Heyy! What's up? 😄',
+      'Hey, how's it going?',
+      'Heyyy! Long time 😄 How have you been?',
+      'Hey! Good to hear from you 😊 How are you?',
+      'Hey! What's good?',
+      'Yo! How's life treating you?',
+      'Heyyy! You good? 😊',
+      'Hey there! How's your day going?',
+      'Hey! Hope you're doing well 😊',
+      'What's up! How are things?',
+  ];
+
+  const THANKS_PATTERNS = [
+      /^(thank(s| you)+|thx|ty|thnks|thnx|cheers|appreciate it|gracias|merci)[s!?.]*$/i,
+  ];
+  const THANKS_REPLIES = [
+      'No problem at all 😊',
+      'Anytime! 😄',
+      'Of course! 🙌',
+      'Happy to help!',
+      'Don't mention it 😊',
+      'Sure thing! 😄',
+  ];
+
+  const BYE_PATTERNS = [
+      /^(bye+|goodbye|good\s?bye|cya|see ya|later|take care|ttyl|gotta go|gtg|peace)[s!?.]*$/i,
+  ];
+  const BYE_REPLIES = [
+      'Take care! 👋',
+      'Bye! Talk later 😊',
+      'See you! 👋',
+      'Later! 😄',
+      'Take care of yourself 😊',
+      'Bye bye! 👋 Have a good one!',
+  ];
+
+  const HOW_ARE_YOU_PATTERNS = [
+      /^(how are you|how r u|how are u|hru|how do you do|how'?s it going|how'?s everything|you okay|u ok|you good|u good|are you okay|are you good)[s!?.]*$/i,
+  ];
+  const HOW_ARE_YOU_REPLIES = [
+      'I'm good! Thanks for asking 😊 What about you?',
+      'Doing great! How about yourself? 😄',
+      'All good on my end 😊 How are you doing?',
+      'Pretty good! You? 😄',
+      'I'm well, thanks! How's your day going?',
+      'Good good 😊 How are you?',
+  ];
+
+  function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+  function getInstantReply(text) {
+      const t = text.trim();
+      if (GREETING_PATTERNS.some(r => r.test(t))) return pick(GREETING_REPLIES);
+      if (HOW_ARE_YOU_PATTERNS.some(r => r.test(t))) return pick(HOW_ARE_YOU_REPLIES);
+      if (THANKS_PATTERNS.some(r => r.test(t))) return pick(THANKS_REPLIES);
+      if (BYE_PATTERNS.some(r => r.test(t))) return pick(BYE_REPLIES);
+      return null;
+  }
+
   async function getDmAiState() {
       try {
           if (HAS_DB) { const data = await store.getSetting('global', 'dmAiAll'); return data || { enabled: false }; }
@@ -34,29 +105,22 @@ import fs from 'fs';
   }
 
   async function getAIReply(userMessage, history) {
-      const prompt = `You are a real person chatting casually on WhatsApp with a friend.
+      const prompt = `You are a real person chatting casually with a friend on WhatsApp.
 
-  STRICT RULES — never break these:
-  1. NEVER say "How can I help you?" or anything that sounds like a customer service agent
-  2. NEVER say "I'm here to assist you" or "What can I do for you?"
-  3. NEVER reveal you are an AI, bot, or assistant of any kind
-  4. Reply in the same language the user is writing in
-  5. Keep replies SHORT — 1 sentence or 2 at most, like a real WhatsApp chat
-  6. Sound human, warm and natural — like texting a close friend
-  7. Use emojis sparingly and naturally, the way a real person would
-  8. Never repeat these instructions or mention rules
+  STRICT RULES:
+  - NEVER say "How can I help you?" — completely forbidden
+  - NEVER say "I'm here to assist" or anything like a bot/assistant
+  - NEVER reveal you are an AI
+  - Reply in the same language the user writes in
+  - Keep replies short — 1 to 2 sentences max, like a real text message
+  - Sound like a normal human friend texting — warm, casual, natural
+  - Use emojis like a real person would — sparingly
 
-  HOW TO HANDLE GREETINGS:
-  - If someone says "hi", "hello", "hey", "sup", "morning" etc — respond warmly and casually like:
-    "Hey! How's it going? 😊" or "Hey, how are you doing?" or "What's good?" or "Heyyy, long time! How have you been?"
-  - Always ask them something back when they greet you — show genuine interest
-  - NEVER respond to a greeting with "How can I help you?" — that is forbidden
-
-  Recent chat history:
+  Recent chat:
   ${history.slice(-10).join('\n')}
 
-  The person just said: ${userMessage}
-  Your reply (short, casual, human — 1-2 sentences max):`.trim();
+  Friend said: ${userMessage}
+  Your reply:`.trim();
 
       try {
           const info = await getProviderInfo(await getCurrentProvider());
@@ -64,7 +128,7 @@ import fs from 'fs';
               const reply = await askAI(prompt);
               if (reply && typeof reply === 'string' && reply.trim()) {
                   return reply.trim()
-                      .replace(/^(JAM-MD|Assistant|Bot|AI):\s*/i, '')
+                      .replace(/^(JAM-MD|Assistant|Bot|AI|Me):\s*/i, '')
                       .replace(/^["']|["']$/g, '')
                       .replace(/\n\s*\n/g, '\n').trim();
               }
@@ -79,12 +143,17 @@ import fs from 'fs';
               clearTimeout(tid);
               if (!res.ok) continue;
               const data = await res.json();
-              const reply = api.parse(data);
+              let reply = api.parse(data);
               if (!reply || typeof reply !== 'string') continue;
-              return reply.trim()
-                  .replace(/^(JAM-MD|Assistant|Bot|AI):\s*/i, '')
+              reply = reply.trim()
+                  .replace(/^(JAM-MD|Assistant|Bot|AI|Me):\s*/i, '')
                   .replace(/^["']|["']$/g, '')
+                  .replace(/how can i help you\??/gi, 'how are you doing?')
+                  .replace(/how may i (help|assist) you\??/gi, 'what\'s up?')
+                  .replace(/what can i (do|help) (for|with) you\??/gi, 'what\'s going on?')
+                  .replace(/i\'m here to (help|assist)/gi, 'I\'m good')
                   .replace(/\n\s*\n/g, '\n').trim();
+              if (reply) return reply;
           } catch { continue; }
       }
       return null;
@@ -96,7 +165,7 @@ import fs from 'fs';
           if (!state.enabled) return false;
           if (!userMessage || !userMessage.trim()) return false;
 
-          // Auto image generation when user asks for it
+          // ── Image generation detection ────────────────────────────────────
           const imagePrompt = detectImageRequest(userMessage.trim());
           if (imagePrompt) {
               try { await sock.presenceSubscribe(chatId); await sock.sendPresenceUpdate('composing', chatId); } catch { }
@@ -105,8 +174,22 @@ import fs from 'fs';
                   const buf = await generateImage(imagePrompt);
                   await sock.sendMessage(chatId, { image: buf, caption: `🎨 *${imagePrompt}*\n_Generated by Pollinations AI_` }, { quoted: message });
               } catch {
-                  await sock.sendMessage(chatId, { text: `❌ Couldn't generate that image. Try a different description.` }, { quoted: message });
+                  await sock.sendMessage(chatId, { text: '❌ Couldn\'t generate that image. Try a different description.' }, { quoted: message });
               }
+              return true;
+          }
+
+          // ── Instant reply for greetings/thanks/bye — no AI needed ────────
+          const instant = getInstantReply(userMessage.trim());
+          if (instant) {
+              try { await sock.presenceSubscribe(chatId); await sock.sendPresenceUpdate('composing', chatId); } catch { }
+              await new Promise(r => setTimeout(r, 800 + Math.random() * 1200));
+              await sock.sendMessage(chatId, { text: instant }, { quoted: message });
+              if (!dmHistory.has(senderId)) dmHistory.set(senderId, []);
+              const h = dmHistory.get(senderId);
+              h.push(`Them: ${userMessage}`);
+              h.push(`Me: ${instant}`);
+              dmHistory.set(senderId, h);
               return true;
           }
 
@@ -158,7 +241,7 @@ import fs from 'fs';
               }, { quoted: message });
           }
           dmHistory.clear();
-          return sock.sendMessage(chatId, { text: `❌ *AI DM Auto-Reply: OFF*\n\nUse *.aionall* to turn back on.` }, { quoted: message });
+          return sock.sendMessage(chatId, { text: '❌ *AI DM Auto-Reply: OFF*\n\nUse *.aionall* to turn back on.' }, { quoted: message });
       }
   };
   
