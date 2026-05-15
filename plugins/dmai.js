@@ -3,43 +3,22 @@ import fs from 'fs';
   import { dataFile } from '../lib/paths.js';
   import store from '../lib/lightweight_store.js';
   import { askAI, getCurrentProvider, getProviderInfo } from '../lib/aiProvider.js';
+  import { detectImageRequest, generateImage } from '../lib/imageGen.js';
 
   const DM_AI_FILE = dataFile('dmAiAll.json');
-  const MONGO_URL = process.env.MONGO_URL;
-  const HAS_DB = !!(MONGO_URL || process.env.POSTGRES_URL || process.env.MYSQL_URL || process.env.DB_URL);
-
+  const HAS_DB = !!(process.env.MONGO_URL || process.env.POSTGRES_URL || process.env.MYSQL_URL || process.env.DB_URL);
   const dmHistory = new Map();
 
-  // Free API fallback pool (used only when no key-based provider is configured)
   const AI_APIS = [
-      {
-          name: 'ZellAPI',
-          url: (t) => `https://zellapi.autos/ai/chatbot?text=${encodeURIComponent(t)}`,
-          parse: (d) => d?.result
-      },
-      {
-          name: 'Hercai',
-          url: (t) => `https://hercai.onrender.com/gemini/hercai?question=${encodeURIComponent(t)}`,
-          parse: (d) => d?.reply
-      },
-      {
-          name: 'SparkAPI',
-          url: (t) => `https://discardapi.dpdns.org/api/chat/spark?apikey=guru&text=${encodeURIComponent(t)}`,
-          parse: (d) => d?.result?.answer
-      },
-      {
-          name: 'LlamaAPI',
-          url: (t) => `https://discardapi.dpdns.org/api/bot/llama?apikey=guru&text=${encodeURIComponent(t)}`,
-          parse: (d) => d?.result
-      }
+      { name: 'ZellAPI', url: t => `https://zellapi.autos/ai/chatbot?text=${encodeURIComponent(t)}`, parse: d => d?.result },
+      { name: 'Hercai', url: t => `https://hercai.onrender.com/gemini/hercai?question=${encodeURIComponent(t)}`, parse: d => d?.reply },
+      { name: 'SparkAPI', url: t => `https://discardapi.dpdns.org/api/chat/spark?apikey=guru&text=${encodeURIComponent(t)}`, parse: d => d?.result?.answer },
+      { name: 'LlamaAPI', url: t => `https://discardapi.dpdns.org/api/bot/llama?apikey=guru&text=${encodeURIComponent(t)}`, parse: d => d?.result }
   ];
 
   async function getDmAiState() {
       try {
-          if (HAS_DB) {
-              const data = await store.getSetting('global', 'dmAiAll');
-              return data || { enabled: false };
-          }
+          if (HAS_DB) { const data = await store.getSetting('global', 'dmAiAll'); return data || { enabled: false }; }
           if (!fs.existsSync(DM_AI_FILE)) return { enabled: false };
           return JSON.parse(fs.readFileSync(DM_AI_FILE, 'utf8'));
       } catch { return { enabled: false }; }
@@ -47,16 +26,11 @@ import fs from 'fs';
 
   async function setDmAiState(enabled) {
       try {
-          if (HAS_DB) {
-              await store.saveSetting('global', 'dmAiAll', { enabled });
-          } else {
-              const dir = path.dirname(DM_AI_FILE);
-              if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-              fs.writeFileSync(DM_AI_FILE, JSON.stringify({ enabled }, null, 2));
-          }
-      } catch (e) {
-          console.error('dmAi save error:', e.message);
-      }
+          if (HAS_DB) { await store.saveSetting('global', 'dmAiAll', { enabled }); return; }
+          const dir = path.dirname(DM_AI_FILE);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(DM_AI_FILE, JSON.stringify({ enabled }, null, 2));
+      } catch (e) { console.error('dmAi save error:', e.message); }
   }
 
   async function getAIReply(userMessage, history) {
@@ -76,7 +50,6 @@ import fs from 'fs';
   User: ${userMessage}
   JAM-MD:`.trim();
 
-      // Try selected provider first (.aiswitch / .aikey)
       try {
           const info = await getProviderInfo(await getCurrentProvider());
           if (info && info.hasKey) {
@@ -85,13 +58,11 @@ import fs from 'fs';
                   return reply.trim()
                       .replace(/^[A-Z\s]{4,}:.*$/gm, '')
                       .replace(/^(JAM-MD|Assistant|Bot):\s*/i, '')
-                      .replace(/\n\s*\n/g, '\n')
-                      .trim();
+                      .replace(/\n\s*\n/g, '\n').trim();
               }
           }
-      } catch (_) { /* fall through to free API pool */ }
+      } catch (_) { }
 
-      // Fallback: free API pool
       for (const api of AI_APIS) {
           try {
               const controller = new AbortController();
@@ -105,8 +76,7 @@ import fs from 'fs';
               return reply.trim()
                   .replace(/^[A-Z\s]{4,}:.*$/gm, '')
                   .replace(/^(JAM-MD|Assistant|Bot):\s*/i, '')
-                  .replace(/\n\s*\n/g, '\n')
-                  .trim();
+                  .replace(/\n\s*\n/g, '\n').trim();
           } catch { continue; }
       }
       return null;
@@ -117,6 +87,20 @@ import fs from 'fs';
           const state = await getDmAiState();
           if (!state.enabled) return false;
           if (!userMessage || !userMessage.trim()) return false;
+
+          // Auto image generation when user asks for it
+          const imagePrompt = detectImageRequest(userMessage.trim());
+          if (imagePrompt) {
+              try { await sock.presenceSubscribe(chatId); await sock.sendPresenceUpdate('composing', chatId); } catch { }
+              await sock.sendMessage(chatId, { text: `🎨 Generating image...\n_"${imagePrompt}"_` }, { quoted: message });
+              try {
+                  const buf = await generateImage(imagePrompt);
+                  await sock.sendMessage(chatId, { image: buf, caption: `🎨 *${imagePrompt}*\n_Generated by Pollinations AI_` }, { quoted: message });
+              } catch {
+                  await sock.sendMessage(chatId, { text: `❌ Couldn't generate that image. Try a different description.` }, { quoted: message });
+              }
+              return true;
+          }
 
           if (!dmHistory.has(senderId)) dmHistory.set(senderId, []);
           const history = dmHistory.get(senderId);
@@ -134,7 +118,6 @@ import fs from 'fs';
 
           history.push(`JAM-MD: ${reply}`);
           dmHistory.set(senderId, history);
-
           await sock.sendMessage(chatId, { text: reply }, { quoted: message });
           return true;
       } catch (err) {
@@ -152,45 +135,22 @@ import fs from 'fs';
       ownerOnly: true,
       async handler(sock, message, args, context) {
           const { chatId } = context;
-          const cmd = (message.message?.conversation ||
-              message.message?.extendedTextMessage?.text || '')
+          const cmd = (message.message?.conversation || message.message?.extendedTextMessage?.text || '')
               .trim().toLowerCase().replace(/^[.!/#]/, '');
-
           const isOn = cmd === 'aionall';
           const current = await getDmAiState();
-
-          if (isOn && current.enabled) {
-              return sock.sendMessage(chatId,
-                  { text: '⚠️ AI auto-reply for DMs is already *ON*.\nUse *.aioffall* to disable.' },
-                  { quoted: message });
-          }
-          if (!isOn && !current.enabled) {
-              return sock.sendMessage(chatId,
-                  { text: '⚠️ AI auto-reply for DMs is already *OFF*.\nUse *.aionall* to enable.' },
-                  { quoted: message });
-          }
-
+          if (isOn && current.enabled) return sock.sendMessage(chatId, { text: '⚠️ AI auto-reply for DMs is already *ON*.\nUse *.aioffall* to disable.' }, { quoted: message });
+          if (!isOn && !current.enabled) return sock.sendMessage(chatId, { text: '⚠️ AI auto-reply for DMs is already *OFF*.\nUse *.aionall* to enable.' }, { quoted: message });
           await setDmAiState(isOn);
-
           const providerInfo = await getProviderInfo(await getCurrentProvider());
-          const providerStatus = providerInfo?.hasKey
-              ? `🔑 ${providerInfo.name}`
-              : `🆓 Free APIs (use .aikey + .aiswitch for better accuracy)`;
-
+          const providerStatus = providerInfo?.hasKey ? `🔑 ${providerInfo.name}` : `🆓 Free APIs (use .aikey + .aiswitch for better accuracy)`;
           if (isOn) {
               return sock.sendMessage(chatId, {
-                  text: `✅ *AI DM Auto-Reply: ON*\n\n` +
-                      `🤖 *Provider:* ${providerStatus}\n` +
-                      `JAM-MD will now automatically reply to *all private DMs*.\n` +
-                      `Chat history is remembered per person.\n\n` +
-                      `Use *.aioffall* to turn off.`
-              }, { quoted: message });
-          } else {
-              dmHistory.clear();
-              return sock.sendMessage(chatId, {
-                  text: `❌ *AI DM Auto-Reply: OFF*\n\nJAM-MD will no longer auto-reply to private DMs.\n\nUse *.aionall* to turn back on.`
+                  text: `✅ *AI DM Auto-Reply: ON*\n\n🤖 *Provider:* ${providerStatus}\n🎨 *Image gen:* enabled — just ask!\n\nUse *.aioffall* to turn off.`
               }, { quoted: message });
           }
+          dmHistory.clear();
+          return sock.sendMessage(chatId, { text: `❌ *AI DM Auto-Reply: OFF*\n\nUse *.aionall* to turn back on.` }, { quoted: message });
       }
   };
   
