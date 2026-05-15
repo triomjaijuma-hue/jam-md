@@ -1,28 +1,28 @@
 import axios from 'axios';
 import yts from 'yt-search';
+import { downloadAudio, ytdlpAvailable, cleanupTmp } from '../lib/ytdlp.js';
+
 const DL_API = 'https://api.qasimdev.dpdns.org/api/loaderto/download';
 const API_KEY = 'xbps-install-Syu';
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
-const downloadWithRetry = async (url, retries = 3) => {
+
+const downloadViaApi = async (url, retries = 3) => {
     for (let i = 0; i < retries; i++) {
         try {
             const { data } = await axios.get(DL_API, {
                 params: { apiKey: API_KEY, format: 'mp3', url },
                 timeout: 90000
             });
-            if (data?.data?.downloadUrl)
-                return data.data;
+            if (data?.data?.downloadUrl) return data.data;
             throw new Error('No download URL');
-        }
-        catch (err) {
-            if (i === retries - 1)
-                throw err;
+        } catch (err) {
+            if (i === retries - 1) throw err;
             console.log(`Download attempt ${i + 1} failed, retrying in 5s...`);
             await wait(5000);
         }
     }
-    throw new Error('All download attempts failed');
 };
+
 export default {
     command: 'song',
     aliases: ['music', 'audio', 'mp3'],
@@ -38,8 +38,7 @@ export default {
             let video;
             if (query.includes('youtube.com') || query.includes('youtu.be')) {
                 video = { url: query };
-            }
-            else {
+            } else {
                 const { videos } = await yts(query);
                 if (!videos?.length)
                     return sock.sendMessage(chatId, { text: '❌ No results found.' }, { quoted: message });
@@ -48,18 +47,34 @@ export default {
             if (video.thumbnail) {
                 await sock.sendMessage(chatId, {
                     image: { url: video.thumbnail },
-                    caption: `🎶 *${video.title || query}*\n⏱ ${video.timestamp || ''}\n\n⏳ Downloading... *(may take up to 30s)*`
+                    caption: `🎶 *${video.title || query}*\n⏱ ${video.timestamp || ''}\n\n⏳ Downloading...`
                 }, { quoted: message });
             }
-            const audio = await downloadWithRetry(video.url);
+            const useYtdlp = await ytdlpAvailable();
+            if (useYtdlp) {
+                let tmpDir;
+                try {
+                    const result = await downloadAudio(video.url);
+                    tmpDir = result.tmpDir;
+                    await sock.sendMessage(chatId, {
+                        audio: result.buffer,
+                        mimetype: 'audio/mpeg',
+                        fileName: `${video.title || 'song'}.mp3`,
+                        ptt: false
+                    }, { quoted: message });
+                    return;
+                } catch (ytErr) {
+                    await cleanupTmp(tmpDir);
+                }
+            }
+            const audio = await downloadViaApi(video.url);
             await sock.sendMessage(chatId, {
                 audio: { url: audio.downloadUrl },
                 mimetype: 'audio/mpeg',
                 fileName: `${audio.title || video.title || 'song'}.mp3`,
                 ptt: false
             }, { quoted: message });
-        }
-        catch (err) {
+        } catch (err) {
             console.error('Song plugin error:', err.message);
             const reason = err.response?.status === 408
                 ? 'Download timed out. Try again.'
