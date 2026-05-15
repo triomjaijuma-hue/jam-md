@@ -6,11 +6,17 @@ const DL_API = 'https://api.qasimdev.dpdns.org/api/loaderto/download';
 const API_KEY = 'xbps-install-Syu';
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
+// Convert music.youtube.com → youtube.com (API doesn't support Music URLs)
+function normalizeYtUrl(url) {
+    return url.replace('music.youtube.com', 'www.youtube.com');
+}
+
 const downloadViaApi = async (url, retries = 3) => {
+    const normalUrl = normalizeYtUrl(url);
     for (let i = 0; i < retries; i++) {
         try {
             const { data } = await axios.get(DL_API, {
-                params: { apiKey: API_KEY, format: 'mp3', url },
+                params: { apiKey: API_KEY, format: 'mp3', url: normalUrl },
                 timeout: 90000
             });
             if (data?.data?.downloadUrl) return data.data;
@@ -37,7 +43,7 @@ export default {
         try {
             let video;
             if (query.includes('youtube.com') || query.includes('youtu.be')) {
-                video = { url: query };
+                video = { url: normalizeYtUrl(query) };
             } else {
                 const { videos } = await yts(query);
                 if (!videos?.length)
@@ -49,7 +55,10 @@ export default {
                     image: { url: video.thumbnail },
                     caption: `🎶 *${video.title || query}*\n⏱ ${video.timestamp || ''}\n\n⏳ Downloading...`
                 }, { quoted: message });
+            } else {
+                await sock.sendMessage(chatId, { text: `⏳ Downloading...` }, { quoted: message });
             }
+            // Try yt-dlp first, fall back to API
             const useYtdlp = await ytdlpAvailable();
             if (useYtdlp) {
                 let tmpDir;
@@ -67,16 +76,21 @@ export default {
                     await cleanupTmp(tmpDir);
                 }
             }
+            // API fallback
             const audio = await downloadViaApi(video.url);
+            // Download buffer to validate it's not empty
+            const audioRes = await axios.get(audio.downloadUrl, { responseType: 'arraybuffer', timeout: 60000 });
+            const audioBuffer = Buffer.from(audioRes.data);
+            if (audioBuffer.length < 1000) throw new Error('Downloaded file is empty or invalid');
             await sock.sendMessage(chatId, {
-                audio: { url: audio.downloadUrl },
+                audio: audioBuffer,
                 mimetype: 'audio/mpeg',
                 fileName: `${audio.title || video.title || 'song'}.mp3`,
                 ptt: false
             }, { quoted: message });
         } catch (err) {
             console.error('Song plugin error:', err.message);
-            const reason = err.response?.status === 408
+            const reason = err.response?.status === 408 || err.message?.includes('timeout')
                 ? 'Download timed out. Try again.'
                 : err.message;
             await sock.sendMessage(chatId, { text: `❌ Failed: ${reason}` }, { quoted: message });
