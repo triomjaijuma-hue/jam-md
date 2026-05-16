@@ -1,0 +1,10 @@
+name = "jam-md-proxy"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Set USER_ID in the Cloudflare dashboard:
+#   Workers & Pages → jam-md-proxy → Settings → Variables
+# Generate a UUID at: https://www.uuidgenerator.net/
+[vars]
+USER_ID = "replace-this-with-your-uuid"
