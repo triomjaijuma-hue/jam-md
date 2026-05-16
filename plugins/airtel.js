@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import qrcode from 'qrcode';
 import os from 'os';
 
 const CONFIG_FILE = path.join(process.cwd(), 'airtel_config.json');
@@ -14,26 +13,41 @@ function getConfig() {
     return null;
 }
 
-function makeVlessLink(workerUrl, uuid, bugHost) {
-    // Do NOT use encodeURIComponent on the path — many clients parse %2F as literal
-    const wsPath = '/vless';
-    return `vless://${uuid}@${workerUrl}:443?encryption=none&security=tls&sni=${workerUrl}&type=ws&host=${bugHost}&path=${wsPath}#Airtel-UG-${bugHost}`;
+// Build a VLESS URI with correct percent-encoding for the path value
+function makeVlessLink(workerUrl, uuid, bugHost, wsPath) {
+    const encodedPath = encodeURIComponent(wsPath); // /vless → %2Fvless, etc.
+    return (
+        `vless://${uuid}@${workerUrl}:443` +
+        `?encryption=none` +
+        `&security=tls` +
+        `&sni=${workerUrl}` +
+        `&type=ws` +
+        `&host=${bugHost}` +
+        `&path=${encodedPath}` +
+        `#Airtel-UG-${bugHost}`
+    );
 }
 
-function makeHttpCustomJson(workerUrl, uuid, bugHost) {
-    return {
-        server: workerUrl,
-        port: 443,
-        protocol: 'vless',
-        uuid: uuid,
-        tls: true,
+// Build a VMess URI (more universally supported by older V2Ray clients)
+function makeVmessLink(workerUrl, uuid, bugHost, wsPath) {
+    const cfg = {
+        v: '2',
+        ps: `Airtel-UG-${bugHost}`,
+        add: workerUrl,
+        port: '443',
+        id: uuid,
+        aid: '0',
+        scy: 'auto',
+        net: 'ws',
+        type: 'none',
+        host: bugHost,
+        path: wsPath,
+        tls: 'tls',
         sni: workerUrl,
-        transport: 'ws',
-        ws_path: '/vless',
-        ws_host: bugHost,
-        bug: bugHost,
-        remarks: `Airtel-UG-${bugHost}`
+        alpn: '',
+        fp: ''
     };
+    return 'vmess://' + Buffer.from(JSON.stringify(cfg)).toString('base64');
 }
 
 const BUG_HOSTS = [
@@ -41,17 +55,13 @@ const BUG_HOSTS = [
     'mmg.whatsapp.net',
     'airtel.co.ug',
     'selfcare.ug.airtel.com',
-    'media.whatsapp.net',
-    'static.whatsapp.net',
-    '0.facebook.com',
-    'graph.facebook.com',
 ];
 
 export default {
     command: 'airtel',
     aliases: ['airtelug'],
     category: 'tools',
-    description: 'Generate free Airtel Uganda internet configs for HTTP Custom / V2RayNG',
+    description: 'Generate Airtel Uganda free internet configs for V2RayNG',
     usage: '.airtel',
     async handler(sock, message, args, context) {
         const chatId = context.chatId || message.key.remoteJid;
@@ -59,50 +69,61 @@ export default {
 
         if (!config) {
             return sock.sendMessage(chatId, {
-                text: '❌ Airtel config not set up yet.\nOwner must run:\n.airtelsetup <worker-url> <uuid>'
+                text: '❌ Not configured yet.\nOwner must run:\n*.airtelsetup <worker-url> <uuid> [ws-path]*\n\nExample:\n.airtelsetup myworker.workers.dev 1c0aed11-xxxx /vless'
             }, { quoted: message });
         }
 
+        const { workerUrl, uuid, wsPath } = config;
+
+        // Many Cloudflare Worker templates use different paths.
+        // Try all common ones plus the user-configured one.
+        const pathsToTry = [...new Set([
+            wsPath,          // user-configured (top priority)
+            `/${uuid}`,      // edtunnel style
+            '/vless',        // generic
+            '/',             // simple proxy
+            '/ws',           // websocket path
+        ])];
+
         await sock.sendMessage(chatId, {
-            text: '⏳ Generating Airtel Uganda free internet configs...'
+            text: `⏳ Generating configs...\n🌐 Worker: ${workerUrl}\n🔑 UUID: ${uuid.slice(0, 8)}...`
         }, { quoted: message });
 
-        const allConfigs = [];
-
+        // Send one message per bug host with all path variants
         for (const bugHost of BUG_HOSTS) {
-            const link = makeVlessLink(config.workerUrl, config.uuid, bugHost);
-            const hcJson = makeHttpCustomJson(config.workerUrl, config.uuid, bugHost);
-            allConfigs.push({ bugHost, link, hcJson });
+            let msg = `🇺🇬 *Airtel Uganda — Bug: ${bugHost}*\n\nCopy any link below → V2RayNG → ➕ → Import from clipboard\nTry each path until one connects:\n`;
 
-            try {
-                const qrBuffer = await qrcode.toBuffer(link, { errorCorrectionLevel: 'M', width: 400 });
-                await sock.sendMessage(chatId, {
-                    image: qrBuffer,
-                    caption: `🇺🇬 *Airtel Uganda Free Internet*\n\n🐛 Bug Host: \`${bugHost}\`\n\n📋 *VLESS Link:*\n\`\`\`${link}\`\`\`\n\n📲 Scan QR in HTTP Custom or copy link to V2RayNG`
-                });
-            } catch {
-                await sock.sendMessage(chatId, {
-                    text: `🐛 *${bugHost}*\n${link}`
-                });
+            for (const p of pathsToTry) {
+                const vless = makeVlessLink(workerUrl, uuid, bugHost, p);
+                msg += `\n*Path ${p}:*\n\`\`\`${vless}\`\`\`\n`;
             }
+
+            await sock.sendMessage(chatId, { text: msg });
         }
 
-        // Send combined HTTP Custom JSON file for easy import
+        // Also send a subscription file (base64 list) — V2RayNG can import this as a local sub
         try {
-            const hcBundle = allConfigs.map(c => c.hcJson);
-            const tmpFile = path.join(os.tmpdir(), `airtel-ug-${Date.now()}.json`);
-            fs.writeFileSync(tmpFile, JSON.stringify(hcBundle, null, 2));
+            const links = [];
+            for (const bugHost of BUG_HOSTS) {
+                for (const p of pathsToTry) {
+                    links.push(makeVmessLink(workerUrl, uuid, bugHost, p));
+                    links.push(makeVlessLink(workerUrl, uuid, bugHost, p));
+                }
+            }
+            const subContent = Buffer.from(links.join('\n')).toString('base64');
+            const tmpFile = path.join(os.tmpdir(), `airtel-sub-${Date.now()}.txt`);
+            fs.writeFileSync(tmpFile, subContent);
             await sock.sendMessage(chatId, {
                 document: fs.readFileSync(tmpFile),
-                mimetype: 'application/json',
-                fileName: 'Airtel-UG-Configs.json',
-                caption: `📁 HTTP Custom config file — import all ${BUG_HOSTS.length} configs at once`
+                mimetype: 'text/plain',
+                fileName: 'airtel-ug-subscription.txt',
+                caption: '📋 *V2RayNG Subscription file*\nOpen V2RayNG → ☰ → Subscription → ➕ → paste a URL *or* save this file locally and import it.\n\nContains all bug hosts × all path variants.'
             });
             fs.unlinkSync(tmpFile);
         } catch {}
 
         await sock.sendMessage(chatId, {
-            text: "✅ Done! Try each config — the bug host that matches Airtel's zero-rated sites will work.\n\n💡 *How to use:*\n• *HTTP Custom:* Import the JSON file → connect\n• *V2RayNG:* Copy a VLESS link → import from clipboard\n• *QR:* Scan in HTTP Custom app"
+            text: '✅ Done!\n\n*Steps in V2RayNG:*\n1. Tap ➕ → Import config from clipboard\n2. Paste a link above\n3. Tap the config → Test connection\n4. If it fails, try the next path variant\n\n💡 The path that matches your Cloudflare Worker is the one that will connect.'
         }, { quoted: message });
     }
 };
