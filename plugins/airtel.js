@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import https from 'https';
 
 const CONFIG_FILE = path.join(process.cwd(), 'airtel_config.json');
 
@@ -13,9 +14,39 @@ function getConfig() {
     return null;
 }
 
-// Build a VLESS URI with correct percent-encoding for the path value
+// Test if a WebSocket path on the Worker actually responds (not 404)
+function testPath(workerUrl, wsPath) {
+    return new Promise((resolve) => {
+        const wsKey = Buffer.from(Math.random().toString()).toString('base64');
+        const req = https.request({
+            hostname: workerUrl,
+            port: 443,
+            path: wsPath,
+            method: 'GET',
+            timeout: 6000,
+            headers: {
+                'Host': workerUrl,
+                'Upgrade': 'websocket',
+                'Connection': 'Upgrade',
+                'Sec-WebSocket-Key': wsKey,
+                'Sec-WebSocket-Version': '13',
+                'User-Agent': 'V2RayNG/1.8'
+            }
+        }, (res) => {
+            // 101 = WebSocket upgrade (path is live)
+            // 400 = bad request but server responded (path may still work)
+            // 404 = path does not exist on this Worker
+            const ok = res.statusCode === 101 || res.statusCode === 400;
+            res.destroy();
+            resolve(ok);
+        });
+        req.on('error', () => resolve(false));
+        req.on('timeout', () => { req.destroy(); resolve(false); });
+        req.end();
+    });
+}
+
 function makeVlessLink(workerUrl, uuid, bugHost, wsPath) {
-    const encodedPath = encodeURIComponent(wsPath); // /vless → %2Fvless, etc.
     return (
         `vless://${uuid}@${workerUrl}:443` +
         `?encryption=none` +
@@ -23,12 +54,11 @@ function makeVlessLink(workerUrl, uuid, bugHost, wsPath) {
         `&sni=${workerUrl}` +
         `&type=ws` +
         `&host=${bugHost}` +
-        `&path=${encodedPath}` +
+        `&path=${encodeURIComponent(wsPath)}` +
         `#Airtel-UG-${bugHost}`
     );
 }
 
-// Build a VMess URI (more universally supported by older V2Ray clients)
 function makeVmessLink(workerUrl, uuid, bugHost, wsPath) {
     const cfg = {
         v: '2',
@@ -61,7 +91,7 @@ export default {
     command: 'airtel',
     aliases: ['airtelug'],
     category: 'tools',
-    description: 'Generate Airtel Uganda free internet configs for V2RayNG',
+    description: 'Generate real working V2Ray configs for Airtel Uganda free internet',
     usage: '.airtel',
     async handler(sock, message, args, context) {
         const chatId = context.chatId || message.key.remoteJid;
@@ -69,61 +99,88 @@ export default {
 
         if (!config) {
             return sock.sendMessage(chatId, {
-                text: '❌ Not configured yet.\nOwner must run:\n*.airtelsetup <worker-url> <uuid> [ws-path]*\n\nExample:\n.airtelsetup myworker.workers.dev 1c0aed11-xxxx /vless'
+                text: '❌ Not configured yet.\nOwner must run:\n.airtelsetup <worker-url> <uuid> [ws-path]'
             }, { quoted: message });
         }
 
         const { workerUrl, uuid, wsPath } = config;
 
-        // Many Cloudflare Worker templates use different paths.
-        // Try all common ones plus the user-configured one.
-        const pathsToTry = [...new Set([
-            wsPath,          // user-configured (top priority)
-            `/${uuid}`,      // edtunnel style
-            '/vless',        // generic
-            '/',             // simple proxy
-            '/ws',           // websocket path
-        ])];
-
         await sock.sendMessage(chatId, {
-            text: `⏳ Generating configs...\n🌐 Worker: ${workerUrl}\n🔑 UUID: ${uuid.slice(0, 8)}...`
+            text: `⏳ Testing your Cloudflare Worker paths...\n🌐 ${workerUrl}`
         }, { quoted: message });
 
-        // Send one message per bug host with all path variants
-        for (const bugHost of BUG_HOSTS) {
-            let msg = `🇺🇬 *Airtel Uganda — Bug: ${bugHost}*\n\nCopy any link below → V2RayNG → ➕ → Import from clipboard\nTry each path until one connects:\n`;
+        // Test all common paths + the user-configured one
+        const pathsToTest = [...new Set([wsPath, `/${uuid}`, '/vless', '/', '/ws'])];
 
-            for (const p of pathsToTry) {
-                const vless = makeVlessLink(workerUrl, uuid, bugHost, p);
-                msg += `\n*Path ${p}:*\n\`\`\`${vless}\`\`\`\n`;
-            }
+        const workingPaths = [];
+        await Promise.all(pathsToTest.map(async (p) => {
+            const ok = await testPath(workerUrl, p);
+            if (ok) workingPaths.push(p);
+        }));
 
-            await sock.sendMessage(chatId, { text: msg });
+        if (workingPaths.length === 0) {
+            return sock.sendMessage(chatId, {
+                text: [
+                    '❌ None of the tested paths responded on your Worker.',
+                    '',
+                    `Worker: ${workerUrl}`,
+                    `Tested: ${pathsToTest.join(', ')}`,
+                    '',
+                    'Make sure your Cloudflare Worker is deployed and the URL is correct.',
+                    'Then re-run: .airtelsetup <worker-url> <uuid> [correct-path]'
+                ].join('\n')
+            }, { quoted: message });
         }
 
-        // Also send a subscription file (base64 list) — V2RayNG can import this as a local sub
+        await sock.sendMessage(chatId, {
+            text: `✅ Found ${workingPaths.length} working path(s): ${workingPaths.join(', ')}\n\n📤 Sending configs — each link is a separate message for easy copying.`
+        });
+
+        // Use first working path
+        const activePath = workingPaths[0];
+        const allLinks = [];
+
+        for (const bugHost of BUG_HOSTS) {
+            const vless = makeVlessLink(workerUrl, uuid, bugHost, activePath);
+            const vmess = makeVmessLink(workerUrl, uuid, bugHost, activePath);
+            allLinks.push(vless, vmess);
+
+            // Send header for this bug host
+            await sock.sendMessage(chatId, {
+                text: `🐛 *Bug host: ${bugHost}*\nPath: ${activePath}\nCopy the link below ↓`
+            });
+
+            // Send VLESS link as its own message — long-press copies only the link
+            await sock.sendMessage(chatId, { text: vless });
+
+            // Send VMess link as its own message
+            await sock.sendMessage(chatId, { text: vmess });
+        }
+
+        // Send a subscription .txt file (base64 list) for V2RayNG bulk import
         try {
-            const links = [];
-            for (const bugHost of BUG_HOSTS) {
-                for (const p of pathsToTry) {
-                    links.push(makeVmessLink(workerUrl, uuid, bugHost, p));
-                    links.push(makeVlessLink(workerUrl, uuid, bugHost, p));
-                }
-            }
-            const subContent = Buffer.from(links.join('\n')).toString('base64');
+            const subContent = Buffer.from(allLinks.join('\n')).toString('base64');
             const tmpFile = path.join(os.tmpdir(), `airtel-sub-${Date.now()}.txt`);
             fs.writeFileSync(tmpFile, subContent);
             await sock.sendMessage(chatId, {
                 document: fs.readFileSync(tmpFile),
                 mimetype: 'text/plain',
-                fileName: 'airtel-ug-subscription.txt',
-                caption: '📋 *V2RayNG Subscription file*\nOpen V2RayNG → ☰ → Subscription → ➕ → paste a URL *or* save this file locally and import it.\n\nContains all bug hosts × all path variants.'
+                fileName: 'airtel-ug.txt',
+                caption: `📋 *V2RayNG Subscription file*\nContains all ${allLinks.length} configs (${BUG_HOSTS.length} bug hosts, VLESS + VMess)\n\nV2RayNG → ☰ → Subscription group → ➕ → save file URL, or import manually.`
             });
             fs.unlinkSync(tmpFile);
         } catch {}
 
         await sock.sendMessage(chatId, {
-            text: '✅ Done!\n\n*Steps in V2RayNG:*\n1. Tap ➕ → Import config from clipboard\n2. Paste a link above\n3. Tap the config → Test connection\n4. If it fails, try the next path variant\n\n💡 The path that matches your Cloudflare Worker is the one that will connect.'
+            text: [
+                '✅ *All configs sent!*',
+                '',
+                '*How to use in V2RayNG:*',
+                '1. Long-press any link above → Copy',
+                '2. Open V2RayNG → ➕ → Import config from clipboard',
+                '3. Tap the config → ▶ Connect',
+                '4. If one bug host fails, try the next'
+            ].join('\n')
         }, { quoted: message });
     }
 };
