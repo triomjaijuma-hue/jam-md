@@ -1,7 +1,7 @@
 // plugins/airtel.js
-// Fetches free VMess servers from public GitHub lists, tests each one live
-// (TCP + WebSocket upgrade with Airtel bug host), then sends QR codes for
-// servers that actually accept the bug — so the user just scans and connects.
+// Fetches VMess servers from public lists, runs the same live test as .check
+// (TCP ping → WebSocket upgrade with Airtel bug host), stops at the FIRST
+// confirmed working server and sends its QR codes immediately.
 // Commands: .airtel  .airtelv2ray  .airtelvpn  .ugv2ray  .httpcustom  .hcv2ray
 
 import net from 'net';
@@ -17,7 +17,7 @@ const BUGS = [
   { name: 'Airtel Portal', host: 'airtelafrica.com'    },
 ];
 
-// ── Public GitHub VMess subscription lists (Telegram-scraped, updated daily) 
+// ── Public GitHub VMess subscription lists (Telegram-scraped, updated daily)
 const SUB_URLS = [
   'https://raw.githubusercontent.com/yebekhe/TelegramV2rayCollector/main/sub/base64/vmess',
   'https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/channels/protocols/vmess',
@@ -27,7 +27,7 @@ const SUB_URLS = [
   'https://raw.githubusercontent.com/mfuu/v2ray/master/v2ray',
 ];
 
-// ── Cloudflare CIDR filter (CF servers need real domain, can't use bug host)
+// ── Cloudflare IP filter — CF servers require real domain, reject bug hosts ─
 const CF_CIDRS = [
   '103.21.244.0/22','103.22.200.0/22','103.31.4.0/22',
   '104.16.0.0/13','104.24.0.0/14','162.158.0.0/15',
@@ -45,8 +45,8 @@ function isCF(ip) {
   return CF_CIDRS.some(c => (n & c.mask) === c.net);
 }
 
-// ── TCP connectivity check ──────────────────────────────────────────────────
-function tcpOk(host, port, ms = 3500) {
+// ── Shared test functions (same logic as .check) ────────────────────────────
+function tcpPing(host, port, ms = 3500) {
   return new Promise(r => {
     const s = new net.Socket();
     const t = setTimeout(() => { s.destroy(); r(false); }, ms);
@@ -55,12 +55,11 @@ function tcpOk(host, port, ms = 3500) {
   });
 }
 
-// ── WebSocket upgrade test with bug host ────────────────────────────────────
-function wsAcceptsBug(srv, bugHost, ms = 5000) {
+function wsAcceptsBug(host, port, path, bugHost, ms = 5000) {
   return new Promise(resolve => {
-    const key   = crypto.randomBytes(16).toString('base64');
-    const req   = [
-      `GET ${srv.path} HTTP/1.1`,
+    const key = crypto.randomBytes(16).toString('base64');
+    const req = [
+      `GET ${path} HTTP/1.1`,
       `Host: ${bugHost}`,
       `Upgrade: websocket`,
       `Connection: Upgrade`,
@@ -69,23 +68,40 @@ function wsAcceptsBug(srv, bugHost, ms = 5000) {
       '', '',
     ].join('\r\n');
     const sock = new net.Socket();
-    let data   = '';
-    const t    = setTimeout(() => { sock.destroy(); resolve(false); }, ms);
-    sock.connect(srv.port, srv.add, () => sock.write(req));
+    let data = '';
+    const t = setTimeout(() => { sock.destroy(); resolve({ ok: false, code: 'timeout' }); }, ms);
+    sock.connect(port, host, () => sock.write(req));
     sock.on('data', d => {
       data += d.toString();
-      if (data.includes('\r\n\r\n') || data.length > 200) {
+      if (data.includes('\r\n\r\n') || data.length > 300) {
         clearTimeout(t);
         sock.destroy();
-        resolve(data.match(/HTTP\/1\.[01] (\d+)/)?.[1] === '101');
+        const code = data.match(/HTTP\/1\.[01] (\d+)/)?.[1];
+        resolve({ ok: code === '101', code: code || '???' });
       }
     });
-    sock.on('error', () => { clearTimeout(t); resolve(false); });
+    sock.on('error', e => { clearTimeout(t); resolve({ ok: false, code: e.code }); });
   });
 }
 
-// ── Fetch + deduplicate servers ─────────────────────────────────────────────
-async function fetchAllServers() {
+// Runs .check logic on a single server: TCP → WS with each bug host
+// Returns the server + which bugs work, or null if none pass
+async function checkServer(srv) {
+  const alive = await tcpPing(srv.add, srv.port);
+  if (!alive) return null;
+  const bugResults = await Promise.all(
+    BUGS.map(async bug => ({
+      ...bug,
+      ok: (await wsAcceptsBug(srv.add, srv.port, srv.path, bug.host)).ok,
+    }))
+  );
+  const working = bugResults.filter(b => b.ok);
+  if (!working.length) return null;
+  return { ...srv, bugs: working };
+}
+
+// ── Fetch + deduplicate all candidate servers ───────────────────────────────
+async function fetchCandidates() {
   const lists = await Promise.all(SUB_URLS.map(async url => {
     try {
       const r = await fetch(url, {
@@ -125,31 +141,6 @@ async function fetchAllServers() {
   return servers;
 }
 
-// ── Find servers that accept bug host (live-tested, max 5 found) ────────────
-async function findWorkingServers(statusCb) {
-  const all = await fetchAllServers();
-  statusCb(`Testing ${all.length} candidates...`);
-
-  // Phase 1: parallel TCP ping
-  const tcpResults = await Promise.all(all.map(async s => ({
-    ...s, tcp: await tcpOk(s.add, s.port),
-  })));
-  const alive = tcpResults.filter(s => s.tcp);
-  statusCb(`${alive.length} servers reachable — checking bug host...`);
-
-  // Phase 2: WS test with WhatsApp bug (primary bug)
-  const found = [];
-  const BATCH  = 20; // test 20 at a time to avoid socket exhaustion
-  for (let i = 0; i < alive.length && found.length < 5; i += BATCH) {
-    const batch = alive.slice(i, i + BATCH);
-    const results = await Promise.all(
-      batch.map(async s => ({ ...s, ok: await wsAcceptsBug(s, BUGS[0].host) }))
-    );
-    found.push(...results.filter(s => s.ok));
-  }
-  return found;
-}
-
 // ── Build vmess:// URI ──────────────────────────────────────────────────────
 function makeUri(srv, bug) {
   return 'vmess://' + Buffer.from(JSON.stringify({
@@ -168,11 +159,11 @@ function makeUri(srv, bug) {
   })).toString('base64');
 }
 
-// ── Fetch QR code PNG from Google Charts ────────────────────────────────────
+// ── QR code PNG via Google Charts ───────────────────────────────────────────
 async function getQrPng(link) {
   try {
     const url = `https://chart.googleapis.com/chart?chs=512x512&cht=qr&choe=UTF-8&chl=${encodeURIComponent(link)}`;
-    const r   = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
     if (!r.ok) return null;
     return Buffer.from(await r.arrayBuffer());
   } catch { return null; }
@@ -186,8 +177,8 @@ export default {
     'hcv2ray', 'airtelung', 'v2rayug', 'v2rayairtel', 'airtelug',
   ],
   category: 'tools',
-  description: 'Airtel Uganda free internet — live-tested V2Ray configs, scan QR in HTTP Custom',
-  usage:   '.airtel',
+  description: 'Airtel Uganda free internet — finds first confirmed working server and sends QR instantly',
+  usage: '.airtel',
 
   async handler(sock, message, args, context) {
     const chatId = context.chatId || message.key.remoteJid;
@@ -195,114 +186,137 @@ export default {
 
     await sock.sendMessage(chatId, {
       text: [
-        '🔍 *Searching for working Airtel Uganda servers...*',
-        '_Fetching & live-testing — takes about 30s_',
+        '🔍 *Searching for a working Airtel Uganda server...*',
+        '_Testing each server live (same as .check) — stops the moment one works_',
+        '_Takes up to 45 seconds_',
       ].join('\n'),
     }, { quoted: message });
 
     try { await sock.sendPresenceUpdate('composing', chatId); } catch {}
 
-    let lastStatus = '';
-    const servers = await findWorkingServers(async msg => {
-      if (msg !== lastStatus) {
-        lastStatus = msg;
+    // Fetch all candidates
+    const candidates = await fetchCandidates();
+
+    // TCP-ping all in parallel first (fast filter)
+    const tcpResults = await Promise.all(
+      candidates.map(async s => ({ ...s, alive: await tcpPing(s.add, s.port) }))
+    );
+    const alive = tcpResults.filter(s => s.alive);
+
+    if (!alive.length) {
+      await sock.sendMessage(chatId, {
+        text: '⚠️ *All servers offline right now.* Try again in 1–2 hours.',
+      }, { quoted: message });
+      return;
+    }
+
+    // Walk alive servers in batches of 10 — stop at first confirmed working one
+    const BATCH = 10;
+    let confirmed = null;
+    let tested = 0;
+
+    for (let i = 0; i < alive.length && !confirmed; i += BATCH) {
+      const batch = alive.slice(i, i + BATCH);
+      tested += batch.length;
+
+      const results = await Promise.all(batch.map(checkServer));
+      confirmed = results.find(r => r !== null) || null;
+
+      if (!confirmed && tested < alive.length) {
         try {
-          await sock.sendMessage(chatId, { text: `⚙️ ${msg}` }, { quoted: message });
+          await sock.sendMessage(chatId, {
+            text: `⚙️ _Checked ${tested}/${alive.length} — still searching..._`,
+          }, { quoted: message });
         } catch {}
       }
-    });
+    }
 
-    // ── No working servers found ─────────────────────────────────────────────
-    if (!servers.length) {
+    // ── No working server found ─────────────────────────────────────────────
+    if (!confirmed) {
       await sock.sendMessage(chatId, {
         text: [
-          '⚠️ *No servers passed the live test today.*',
+          '⚠️ *No server passed the full test today.*',
           '',
-          'The free server lists update every few hours.',
-          '*Try again in 1–2 hours* and fresh servers will be available.',
+          `_(Checked ${alive.length} live servers — all rejected Airtel bug hosts)_`,
           '',
-          '_This is the most reliable free method — no account creation needed,_',
-          '_the bot tests every server before sending it to you._',
+          'The lists update every few hours. *Try again in 1–2 hours.*',
         ].join('\n'),
       }, { quoted: message });
       return;
     }
 
-    // ── Send results ─────────────────────────────────────────────────────────
+    // ── Found one — send confirmation + QR codes ────────────────────────────
+    const bugNames = confirmed.bugs.map(b => b.name).join(', ');
+
     await sock.sendMessage(chatId, {
       text: [
-        `✅ *Found ${servers.length} working server(s)!*`,
-        '',
-        '*Scan a QR code in HTTP Custom to connect:*',
-        '1. Open *HTTP Custom*',
-        '2. Tap menu ≡ → *Config* → ➕ button',
-        '3. Choose *VMess*',
-        '4. Tap *"Scan QR Code"*',
-        '5. Scan the image below → *Save* → *Connect* ✅',
+        `✅ *Found a working server!*`,
+        ``,
+        `Server: \`${confirmed.add}:${confirmed.port}\``,
+        `Working bugs: *${bugNames}*`,
+        ``,
+        `*Scan a QR code in HTTP Custom to connect:*`,
+        `1. Open *HTTP Custom*`,
+        `2. Menu ≡ → *Config* → ➕`,
+        `3. Choose *VMess*`,
+        `4. Tap *"Scan QR Code"*`,
+        `5. Scan image below → *Save* → *Connect* ✅`,
       ].join('\n'),
     }, { quoted: message });
 
-    // Send QR for top server × first 3 bugs
+    // Send QR for each confirmed working bug
     let sent = 0;
-    for (const srv of servers.slice(0, 2)) {
-      for (const bug of BUGS.slice(0, 3)) {
-        if (sent >= 4) break;
-        const uri = makeUri(srv, bug);
-        const qr  = await getQrPng(uri);
-        if (!qr) continue;
+    for (const bug of confirmed.bugs) {
+      if (sent >= 4) break;
+      const uri = makeUri(confirmed, bug);
+      const qr  = await getQrPng(uri);
+      if (!qr) continue;
 
-        await sock.sendMessage(chatId, {
-          image:    qr,
-          mimetype: 'image/png',
-          caption:  [
-            `📱 *QR ${sent + 1} — ${bug.name} bug*`,
-            `Bug: \`${bug.host}\`  |  Port: ${srv.port}`,
-            sent === 0 ? '\n👆 *Scan this first in HTTP Custom*' : '_Backup if QR 1 fails_',
-          ].join('\n'),
-        }, { quoted: message });
+      await sock.sendMessage(chatId, {
+        image:    qr,
+        mimetype: 'image/png',
+        caption:  [
+          `📱 *QR ${sent + 1} — ${bug.name} bug*`,
+          `Bug: \`${bug.host}\``,
+          sent === 0 ? '\n👆 *Scan this first — confirmed working!*' : '_Backup option_',
+        ].join('\n'),
+      }, { quoted: message });
 
-        sent++;
-        await new Promise(r => setTimeout(r, 500));
-      }
+      sent++;
+      await new Promise(r => setTimeout(r, 500));
     }
 
-    // ── Backup text file with all vmess:// links ──────────────────────────────
-    const allLinks = servers.flatMap((srv, si) =>
-      BUGS.map(bug => `# Server ${si + 1} × ${bug.name}\n${makeUri(srv, bug)}`)
+    // Backup text file
+    const allLinks = confirmed.bugs.map(
+      (bug, i) => `# ${i + 1}. ${bug.name} bug\n${makeUri(confirmed, bug)}`
     ).join('\n\n');
 
     await sock.sendMessage(chatId, {
       document: Buffer.from([
         `JAM-MD — Airtel Uganda V2Ray — ${date}`,
-        '==============================================',
-        '',
-        'HOW TO USE:',
-        'EASIEST: Scan QR code images sent above in HTTP Custom',
-        '  HTTP Custom → Config → + → VMess → Scan QR Code',
-        '',
-        'MANUAL: Copy a vmess:// link below',
-        '  HTTP Custom → Config → + → VMess → Paste Link',
-        '  V2RayNG → + (top right) → Import from clipboard',
-        '  NapsternetV → Config → + → Import VMess',
-        '',
-        '==============================================',
-        `ALL VMESS LINKS (${servers.length * BUGS.length} configs)`,
-        '==============================================',
-        '',
+        `Server: ${confirmed.add}:${confirmed.port}`,
+        `Confirmed working bugs: ${bugNames}`,
+        ``,
+        `HOW TO USE:`,
+        `  Scan QR codes above → HTTP Custom → VMess → Scan QR`,
+        `  OR copy a vmess:// link below → paste in HTTP Custom or V2RayNG`,
+        ``,
+        `══════════════════════════════`,
+        `VMESS LINKS (live-tested ✅)`,
+        `══════════════════════════════`,
+        ``,
         allLinks,
-        '',
-        '==============================================',
-        'AIRTEL UGANDA BUG HOSTS',
-        '==============================================',
-        ...BUGS.map((b, i) => `${i + 1}. ${b.name}: ${b.host}`),
-        '',
+        ``,
+        `AIRTEL UGANDA BUG HOSTS:`,
+        ...BUGS.map((b, i) => `  ${i + 1}. ${b.name}: ${b.host}`),
+        ``,
         `★ Live-tested by JAM-MD Bot — ${date} ★`,
       ].join('\n'), 'utf8'),
       fileName: `Airtel-UG-V2Ray-${date}.txt`,
       mimetype: 'text/plain',
       caption:  [
-        `📋 *Backup file* — ${servers.length * BUGS.length} live-tested vmess:// links`,
-        'Copy any link → paste in HTTP Custom or V2RayNG',
+        `📋 *Backup* — ${confirmed.bugs.length} live-tested vmess:// links`,
+        `Copy any link → paste in HTTP Custom or V2RayNG`,
       ].join('\n'),
     }, { quoted: message });
   },
