@@ -1,229 +1,204 @@
-// plugins/airtel.js — Dedicated Airtel Uganda V2Ray command
-// Sends QR code images to scan directly in HTTP Custom / V2RayNG / NapsternetV
-// Commands: .airtel  .airtelv2ray  .airtelvpn  .ugv2ray  .httpcustom  .hcv2ray
+// plugins/airtel.js
+// Pulls free VMess servers from public GitHub lists (updated daily, no signup needed)
+// Sends QR code images → user scans in HTTP Custom to connect on Airtel Uganda free data
+// Commands: .airtel  .airtelv2ray  .airtelvpn  .ugv2ray  .httpcustom  .hcv2ray  .v2rayug
 
 const BUGS = [
-    { name: 'WhatsApp WS',   host: 'web.whatsapp.com',    tls: '' },
-    { name: 'WhatsApp CDN',  host: 'mmg.whatsapp.net',    tls: '' },
-    { name: 'WhatsApp P2P',  host: 'v.whatsapp.net',      tls: '' },
-    { name: 'Google Free',   host: 'clients3.google.com', tls: '' },
-    { name: 'Facebook Zero', host: '0.facebook.com',      tls: '' },
-    { name: 'Airtel Portal', host: 'airtelafrica.com',    tls: '' },
-    { name: 'WA Secure TLS', host: 'web.whatsapp.com',   tls: 'tls' },
-    { name: 'Cloudflare',    host: 'speed.cloudflare.com',tls: 'tls' },
+  { name: 'WhatsApp',       host: 'web.whatsapp.com'    },
+  { name: 'WA Media',       host: 'mmg.whatsapp.net'    },
+  { name: 'WA P2P',         host: 'v.whatsapp.net'      },
+  { name: 'Google',         host: 'clients3.google.com' },
+  { name: 'Facebook Zero',  host: '0.facebook.com'      },
+  { name: 'Airtel Portal',  host: 'airtelafrica.com'    },
 ];
 
-const PROVIDERS = [
-    { name: 'VPNJantit',  url: () => 'https://www.vpnjantit.com/create-free-vmess',
-      servers: [
-          { id: 'sg1.vpnjantit.com', region: 'SG 🇸🇬', port: 80, path: '/vpnjantit-com' },
-          { id: 'de1.vpnjantit.com', region: 'DE 🇩🇪', port: 80, path: '/vpnjantit-com' },
-          { id: 'us1.vpnjantit.com', region: 'US 🇺🇸', port: 80, path: '/vpnjantit-com' },
-      ],
-    },
-    { name: 'SSHOcean',   url: s => `https://www.sshocean.com/create-vmess/${s}/`,
-      servers: [{ id: 'sg1', region: 'SG 🇸🇬', port: 80, path: '/sshocean' }],
-    },
-    { name: 'SSHKitty',   url: () => 'https://www.sshkitty.com/create-vmess',
-      servers: [{ id: 'sg-1.sshkitty.com', region: 'SG 🇸🇬', port: 80, path: '/sshkitty' }],
-    },
+// Public GitHub free-server subscription lists (base64-encoded vmess:// lines, updated daily)
+const SUB_URLS = [
+  'https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/v2ray.txt',
+  'https://raw.githubusercontent.com/w1770946466/Auto_proxy/main/Long_term_subscription1',
+  'https://raw.githubusercontent.com/mfuu/v2ray/master/v2ray',
+  'https://raw.githubusercontent.com/freefq/free/master/v2',
+  'https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.txt',
 ];
 
-const UA = {
-    'Content-Type': 'application/x-www-form-urlencoded',
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
-    'Accept': 'text/html,*/*;q=0.8',
-};
-
-function rnd(n) {
-    return Array.from({ length: n }, () => 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]).join('');
-}
-
-async function fetchVmess(prov, srv) {
+async function fetchServers() {
+  const results = await Promise.all(SUB_URLS.map(async url => {
     try {
-        const ctrl = new AbortController();
-        const tid  = setTimeout(() => ctrl.abort(), 25000);
-        const u = 'jam' + rnd(6), p = rnd(8) + 'Aa1!';
-        const res = await fetch(prov.url(srv.id), {
-            method: 'POST', signal: ctrl.signal,
-            headers: { ...UA, Referer: prov.url(srv.id) },
-            body: new URLSearchParams({ username: u, password: p, repassword: p, server: srv.id }).toString(),
-        });
-        clearTimeout(tid);
-        if (!res.ok) return null;
-        const html = await res.text();
-        const uuid = html.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0];
-        if (!uuid) return null;
-        const host = html.match(/(?:Host|Server|IP)\D*((?:\d{1,3}\.){3}\d{1,3})/i)?.[1] || srv.id;
-        const path = html.match(/[Pp]ath\D*(\/[\w\-/]+)/)?.[1] || srv.path;
-        const port = parseInt(html.match(/[Pp]ort\D*(\d{2,5})/)?.[1] || srv.port);
-        return { source: prov.name, region: srv.region, host, port, uuid, path };
-    } catch { return null; }
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 14000);
+      const r = await fetch(url, {
+        signal: ctrl.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      });
+      if (!r.ok) return [];
+      let text = await r.text();
+      try { text = Buffer.from(text.trim(), 'base64').toString('utf8'); } catch {}
+      return text.split(/\r?\n/).filter(l => l.startsWith('vmess://'));
+    } catch { return []; }
+  }));
+
+  // Parse and filter for port-80/8080/8880 WebSocket servers
+  const seen = new Set();
+  const servers = [];
+  for (const links of results) {
+    for (const link of links) {
+      try {
+        const j = JSON.parse(Buffer.from(link.slice(8), 'base64').toString('utf8'));
+        const port = String(j.port);
+        if (j.net !== 'ws') continue;
+        if (!['80','8080','8880'].includes(port)) continue;
+        if (!j.add || !j.id) continue;
+        const key = `${j.add}:${j.port}:${j.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        servers.push({ add: j.add, port: j.port, uuid: j.id, path: j.path || '/', ps: j.ps || '' });
+      } catch {}
+    }
+  }
+  return servers;
 }
 
-function makeUri(acc, bug) {
-    return 'vmess://' + Buffer.from(JSON.stringify({
-        v: '2', ps: `JAM-MD|${acc.region}|${bug.name}`,
-        add: acc.host, port: String(acc.port),
-        id: acc.uuid, aid: '0',
-        net: 'ws', type: 'none',
-        host: bug.host, path: acc.path,
-        tls: bug.tls, sni: bug.tls ? bug.host : '',
-    })).toString('base64');
+function makeVmessUri(srv, bug) {
+  return 'vmess://' + Buffer.from(JSON.stringify({
+    v:    '2',
+    ps:   `JAM-MD|${bug.name}|Airtel-UG`,
+    add:  srv.add,
+    port: String(srv.port),
+    id:   srv.uuid,
+    aid:  '0',
+    net:  'ws',
+    type: 'none',
+    host: bug.host,
+    path: srv.path,
+    tls:  '',
+    sni:  '',
+  })).toString('base64');
 }
 
-async function getQr(vmessLink) {
+async function sendQr(sock, chatId, message, vmessLink, caption) {
+  try {
     const url = `https://chart.googleapis.com/chart?chs=512x512&cht=qr&choe=UTF-8&chl=${encodeURIComponent(vmessLink)}`;
-    try {
-        const ctrl = new AbortController();
-        setTimeout(() => ctrl.abort(), 15000);
-        const res = await fetch(url, { signal: ctrl.signal });
-        if (!res.ok) return null;
-        return Buffer.from(await res.arrayBuffer());
-    } catch { return null; }
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 12000);
+    const r = await fetch(url, { signal: ctrl.signal });
+    if (!r.ok) return false;
+    const img = Buffer.from(await r.arrayBuffer());
+    await sock.sendMessage(chatId, { image: img, mimetype: 'image/png', caption }, { quoted: message });
+    return true;
+  } catch { return false; }
 }
 
 export default {
-    command: 'airtel',
-    aliases: ['airtelv2ray', 'airtelvpn', 'ugv2ray', 'httpcustom', 'hcv2ray', 'airtelung', 'v2rayug', 'v2rayairtel'],
-    category: 'tools',
-    description: 'Airtel Uganda V2Ray — scan QR code in HTTP Custom to connect instantly',
-    usage: '.airtel',
+  command: 'airtel',
+  aliases: ['airtelv2ray','airtelvpn','ugv2ray','httpcustom','hcv2ray','airtelung','v2rayug','v2rayairtel','airtelug'],
+  category: 'tools',
+  description: 'Airtel Uganda free internet — scan QR code in HTTP Custom to connect',
+  usage: '.airtel',
 
-    async handler(sock, message, args, context) {
-        const chatId = context.chatId || message.key.remoteJid;
-        const date   = new Date().toISOString().split('T')[0];
+  async handler(sock, message, args, context) {
+    const chatId = context.chatId || message.key.remoteJid;
 
-        await sock.sendMessage(chatId, {
-            text: [
-                `📡 *JAM-MD — Airtel Uganda V2Ray*`,
-                ``,
-                `Fetching free servers + building QR codes...`,
-                `_Trying ${PROVIDERS.reduce((n,p)=>n+p.servers.length,0)} VMess servers in parallel_`,
-                `_Please wait up to 30 seconds_ ⏳`,
-            ].join('\n'),
-        }, { quoted: message });
+    await sock.sendMessage(chatId, {
+      text: '⏳ *Fetching Airtel Uganda V2Ray configs...*\n_Loading free servers — please wait_',
+    }, { quoted: message });
 
-        try { await sock.presenceSubscribe(chatId); await sock.sendPresenceUpdate('composing', chatId); } catch {}
+    try { await sock.sendPresenceUpdate('composing', chatId); } catch {}
 
-        const results = await Promise.all(PROVIDERS.flatMap(p => p.servers.map(s => fetchVmess(p, s))));
-        const seen = new Set();
-        const accs = results.filter(r => r && !seen.has(r.uuid) && seen.add(r.uuid));
+    const servers = await fetchServers();
 
-        if (!accs.length) {
-            await sock.sendMessage(chatId, {
-                text: [
-                    `⚠️ *All VMess providers blocked auto-signup today.*`,
-                    ``,
-                    `*Get a free account manually (30 seconds):*`,
-                    `1. Open → vpnjantit.com`,
-                    `2. Choose VMess → Singapore`,
-                    `3. Sign up free`,
-                    `4. Copy: UUID, Host, Port, WS Path`,
-                    ``,
-                    `*Then in HTTP Custom:*`,
-                    `Config → + → VMess → Fill details`,
-                    `Bug/Host: web.whatsapp.com`,
-                    `Transport: WebSocket`,
-                    `Port: 80`,
-                    ``,
-                    `*Best Airtel UG bugs to try:*`,
-                    ...BUGS.slice(0,5).map(b=>`• ${b.host}${b.tls?' [TLS]':''}`),
-                ].join('\n'),
-            }, { quoted: message });
-            return;
-        }
+    if (!servers.length) {
+      await sock.sendMessage(chatId, {
+        text: [
+          '⚠️ *Could not load free servers right now.*',
+          '',
+          '*Try again in a few minutes*, or get a server manually:',
+          '→ Visit *vpnjantit.com* on any connection',
+          '→ Create free VMess account (Singapore)',
+          '→ Come back and use *.airtel* again',
+        ].join('\n'),
+      }, { quoted: message });
+      return;
+    }
 
-        const allLinks = accs.flatMap(acc => BUGS.map(bug => ({ acc, bug, uri: makeUri(acc, bug) })));
+    // Use up to 3 servers × first 3 bugs = up to 9 QR codes, but send max 4
+    const picked = servers.slice(0, 3);
+    const date = new Date().toISOString().split('T')[0];
 
-        await sock.sendMessage(chatId, {
-            text: [
-                `✅ *Got ${accs.length} server(s) → ${allLinks.length} configs!*`,
-                ``,
-                `*Sending QR codes now...*`,
-                `📱 Open HTTP Custom → Config → + → VMess → Scan QR`,
-                `_Try each QR until one connects_ 🚀`,
-            ].join('\n'),
-        }, { quoted: message });
+    await sock.sendMessage(chatId, {
+      text: [
+        `✅ *Got ${servers.length} free servers!*`,
+        '',
+        '*Scan any QR code below in HTTP Custom to connect instantly:*',
+        '1️⃣ Open *HTTP Custom*',
+        '2️⃣ Tap menu → *Config* → ➕ button',
+        '3️⃣ Choose *VMess*',
+        '4️⃣ Tap *"Scan QR Code"*',
+        '5️⃣ Scan the image → *Save* → *Connect* ✅',
+        '',
+        '_If one QR doesn\'t connect, try the next one_',
+      ].join('\n'),
+    }, { quoted: message });
 
-        // ── Send QR codes (first account × first 4 bugs) ────────────────────
-        const acc = accs[0];
-        const toSend = BUGS.slice(0, 5);
-        let qrCount = 0;
-
-        for (let i = 0; i < toSend.length; i++) {
-            const bug = toSend[i];
-            const uri = makeUri(acc, bug);
-            const qr  = await getQr(uri);
-            if (!qr) continue;
-
-            await sock.sendMessage(chatId, {
-                image: qr,
-                mimetype: 'image/png',
-                caption: [
-                    `📱 *QR ${qrCount + 1} — ${bug.name}*`,
-                    `Bug: \`${bug.host}\`${bug.tls ? ' [TLS]' : ''}`,
-                    `Server: ${acc.source} ${acc.region}`,
-                    ``,
-                    qrCount === 0
-                        ? `*Steps to connect:*\n1. Open HTTP Custom\n2. Menu → Config → + button\n3. Select "VMess"\n4. Tap "Scan QR Code"\n5. Point at this image → Save → Connect ✅`
-                        : `_Backup — try this if QR ${qrCount} didn't work_`,
-                ].join('\n'),
-            }, { quoted: message });
-
-            qrCount++;
-            await new Promise(r => setTimeout(r, 700));
-        }
-
-        // ── Also send all-in-one backup text ─────────────────────────────────
+    let sent = 0;
+    for (let si = 0; si < picked.length && sent < 4; si++) {
+      const srv = picked[si];
+      for (let bi = 0; bi < BUGS.length && sent < 4; bi++) {
+        const bug = BUGS[bi];
+        const uri = makeVmessUri(srv, bug);
+        const ok = await sendQr(sock, chatId, message, uri, [
+          `📱 *QR ${sent + 1} — ${bug.name} bug*`,
+          `Bug host: \`${bug.host}\``,
+          `Server: \`${srv.add}:${srv.port}\``,
+          sent === 0 ? '\n👆 *Scan this first*' : '',
+        ].join('\n').trim());
+        if (ok) sent++;
         await new Promise(r => setTimeout(r, 500));
+      }
+    }
 
-        const txtBody = allLinks.map(({ acc: a, bug: b, uri }, i) =>
-            `# ${i+1}. ${a.source} ${a.region} × ${b.name}\n${uri}`
-        ).join('\n\n');
+    // Backup .txt with all vmess:// links
+    const allLinks = picked.flatMap(srv =>
+      BUGS.map((bug, bi) => `# Server${picked.indexOf(srv)+1} × ${bug.name}\n${makeVmessUri(srv, bug)}`)
+    ).join('\n\n');
 
-        const txt = [
-            `JAM-MD ★ Airtel Uganda V2Ray — ${date}`,
-            ``,
-            `╔══════════════════════════════════╗`,
-            `║  HOW TO USE — HTTP CUSTOM        ║`,
-            `╚══════════════════════════════════╝`,
-            `EASIEST: Scan the QR code images above`,
-            `  HTTP Custom → Config → + → VMess → Scan QR`,
-            ``,
-            `ALTERNATIVE: Copy-paste a vmess:// link`,
-            `  HTTP Custom → Config → + → VMess → Paste Link`,
-            ``,
-            `FOR V2RayNG APP:`,
-            `  Open V2RayNG → + (top right) → Import from clipboard`,
-            `  Then paste any vmess:// link below`,
-            ``,
-            `╔══════════════════════════════════╗`,
-            `║  ${allLinks.length} VMESS LINKS BELOW            ║`,
-            `╚══════════════════════════════════╝`,
-            ``,
-            txtBody,
-            ``,
-            `╔══════════════════════════════════╗`,
-            `║  AIRTEL UGANDA BUG HOSTS         ║`,
-            `╚══════════════════════════════════╝`,
-            ...BUGS.map((b, i) => `${i+1}. ${b.name}: ${b.host}${b.tls?' [TLS]':''}`),
-            ``,
-            `★ Generated by JAM-MD Bot ★`,
-        ].join('\n');
+    const txt = [
+      `JAM-MD — Airtel Uganda Free Internet — ${date}`,
+      '================================================',
+      '',
+      'HOW TO USE:',
+      'EASIEST: Scan the QR code images sent above',
+      '  → HTTP Custom → Config → + → VMess → Scan QR',
+      '',
+      'MANUAL: Copy any vmess:// link below',
+      '  → HTTP Custom → Config → + → VMess → Paste Link',
+      '  → OR: V2RayNG → + → Import from clipboard',
+      '',
+      '================================================',
+      `ALL VMESS LINKS (${picked.length * BUGS.length} total)`,
+      '================================================',
+      '',
+      allLinks,
+      '',
+      '================================================',
+      'AIRTEL UGANDA BUG HOSTS',
+      '================================================',
+      ...BUGS.map((b, i) => `${i + 1}. ${b.name}: ${b.host}`),
+      '',
+      '★ Generated by JAM-MD Bot ★',
+    ].join('\n');
 
-        await sock.sendMessage(chatId, {
-            document: Buffer.from(txt, 'utf8'),
-            fileName: `AIRTEL_UG_V2RAY_${date}.txt`,
-            mimetype: 'text/plain',
-            caption: [
-                `📋 *Backup: All ${allLinks.length} vmess:// links*`,
-                ``,
-                `If QR scan doesn't work:`,
-                `• Open this file`,
-                `• Copy any vmess:// line`,
-                `• Paste in HTTP Custom → Config → + → VMess`,
-            ].join('\n'),
-        }, { quoted: message });
-    },
+    await sock.sendMessage(chatId, {
+      document: Buffer.from(txt, 'utf8'),
+      fileName: `Airtel-UG-V2Ray-${date}.txt`,
+      mimetype: 'text/plain',
+      caption: [
+        `📋 *Backup file* — all ${picked.length * BUGS.length} vmess:// links`,
+        '',
+        'If QR scan fails:',
+        '• Open this file',
+        '• Copy a vmess:// line',
+        '• Paste in HTTP Custom → Config → + → VMess',
+      ].join('\n'),
+    }, { quoted: message });
+  },
 };
