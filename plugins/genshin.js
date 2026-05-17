@@ -8,7 +8,7 @@ function decodeUnicode(str) {
 export default {
     command: 'genshin',
     aliases: ['gh', 'uid'],
-    category: 'stalk',
+    category: 'info',
     description: 'Stalk Genshin Impact UID',
     usage: '.genshin <UID>',
     async handler(sock, message, args, context) {
