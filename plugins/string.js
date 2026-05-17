@@ -2,7 +2,7 @@ import axios from 'axios';
 export default {
     command: 'string',
     aliases: ['textinfo', 'textstats'],
-    category: 'info',
+    category: 'tools',
     description: 'Get detailed info about a text string',
     usage: '.string <text>',
     async handler(sock, message, args, context) {
