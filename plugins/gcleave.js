@@ -1,7 +1,7 @@
 export default {
     command: 'gcleave',
     aliases: ['leavegroup', 'groupleave', 'leavegc'],
-    category: 'owner',
+    category: 'admin',
     description: 'Make the bot leave a group',
     usage: '.groupleave — leave current group\n.groupleave <jid> — leave specific group',
     ownerOnly: true,
