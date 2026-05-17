@@ -275,7 +275,7 @@ function statusText(state) {
 export default {
     command: 'antisleep',
     aliases: ['keepalive', 'nosleep', 'antislp'],
-    category: 'owner',
+    category: 'admin',
     description: 'Keep bot alive — ping + CPU guard (80%) + disk guard (85%)',
     usage: '.antisleep [on|off|url <url>|test|clean|cron]',
     ownerOnly: true,
