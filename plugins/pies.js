@@ -13,7 +13,7 @@ async function fetchPiesImageBuffer(country) {
 export default {
     command: 'pies',
     aliases: ['pie'],
-    category: 'images',
+    category: 'fun',
     description: 'Get a pies image from a specific country',
     usage: `.pies <country>\nAvailable countries: ${VALID_COUNTRIES.join(', ')}`,
     async handler(sock, message, args, context) {
