@@ -211,7 +211,7 @@ import fs from 'fs';
   const aionPlugin = {
       command: 'aion',
       aliases: ['enableai'],
-      category: 'owner',
+      category: 'ai',
       description: 'Enable AI auto-reply in this specific chat',
       usage: '.aion',
       ownerOnly: true,
