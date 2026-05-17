@@ -3,7 +3,7 @@ import path from 'path';
 export default {
     command: 'getfile',
     aliases: ['readfile', 'viewfile'],
-    category: 'owner',
+    category: 'tools',
     description: 'Read and display file contents from bot directory',
     usage: '.getfile <filename>',
     ownerOnly: true,
