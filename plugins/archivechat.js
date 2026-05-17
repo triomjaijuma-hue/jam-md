@@ -1,7 +1,7 @@
 export default {
     command: 'archivechat',
     aliases: ['archive', 'unarchive', 'unarchivechat'],
-    category: 'owner',
+    category: 'admin',
     description: 'Archive or unarchive the current chat',
     usage: '.archivechat <archive|unarchive>',
     ownerOnly: true,
