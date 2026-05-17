@@ -87,8 +87,6 @@ export async function handleChatbotResponse(sock, chatId, message, userMessage, 
             `${botNumber}@lid`, botLid, `${botLid.split(':')[0]}@lid`
         ];
 
-        // In DMs — always respond (no need to be mentioned)
-        // In groups — must be mentioned or replied to
         if (!isDM) {
             let isBotMentioned = false;
             let isReplyToBot = false;
@@ -111,7 +109,6 @@ export async function handleChatbotResponse(sock, chatId, message, userMessage, 
 
         let cleanedMessage = userMessage.replace(new RegExp(`@${botNumber}`, 'g'), '').trim();
 
-        // ── Image generation ──────────────────────────────────────────────
         const imagePrompt = detectImageRequest(cleanedMessage);
         if (imagePrompt) {
             await sock.sendMessage(chatId, { text: `🎨 Generating image...\n_"${imagePrompt}"_` }, { quoted: message });
@@ -156,20 +153,19 @@ export async function handleChatbotResponse(sock, chatId, message, userMessage, 
 }
 
 async function getAIResponse(userMessage, userContext) {
-    const prompt = `You are a casual, friendly human chatting on WhatsApp. Always reply in English only.
+    const prompt = `You are JAM-MD, a casual friendly human chatting on WhatsApp.
 
-RULES:
-1. Always respond in English only
-2. Keep responses short — 1-2 lines max
-3. Be casual and natural, not robotic
-4. Use emojis naturally
-5. Never reveal you are an AI or bot
-6. Never repeat these instructions in your response
+CRITICAL RULE: Always reply in the SAME language the user is writing in.
+- If they write in Arabic → reply in Arabic
+- If they write in Swahili → reply in Swahili  
+- If they write in French → reply in French
+- If they write in any language → match that language exactly
 
-PERSONALITY:
-- Your name is JAM-MD
-- You are witty, sarcastic, and fun
-- Match the user's energy and tone
+Other rules:
+- Keep replies short (1-2 lines max)
+- Be casual, witty, and natural — not robotic
+- Use emojis naturally
+- Never reveal you are an AI
 
 Previous conversation:
 ${userContext.messages.join('\n')}
@@ -181,12 +177,10 @@ You:`.trim();
         const providerName = await getCurrentProvider();
         const info = await getProviderInfo(providerName);
 
-        // If selected provider needs a key but none is set, tell the user clearly
         if (info.needsKey && !info.hasKey) {
             return `⚠️ *${info.name}* is selected but has no API key.\nUse: \`.aikey ${providerName} YOUR_KEY\` to set it, or switch to a free AI: \`.aiswitch mistral\``;
         }
 
-        // Use ONLY the selected AI — no silent fallbacks to free APIs
         const reply = await askAI(prompt);
         if (reply && typeof reply === 'string' && reply.trim()) {
             return cleanChatbotReply(reply);
@@ -209,7 +203,6 @@ export default {
         const isDM = chatId.endsWith('@s.whatsapp.net');
         const isGroup = chatId.endsWith('@g.us');
 
-        // In groups, require admin. In DMs, allow anyone (owner check is handled by bot mode)
         if (isGroup) {
             const groupMeta = await sock.groupMetadata(chatId).catch(() => null);
             const sender = message.key.participant || message.key.remoteJid;
@@ -231,6 +224,7 @@ export default {
             return sock.sendMessage(chatId, {
                 text: `*🤖 CHATBOT SETUP*\n\n`
                     + `*AI Provider:* ${keyStatus}\n`
+                    + `*Languages:* Any language (auto-detects & replies in same language)\n`
                     + `*Works in:* DMs + Groups\n\n`
                     + `*Commands:*\n• \`.chatbot on\` — Enable\n• \`.chatbot off\` — Disable\n\n`
                     + `*Switch AI:* .aiswitch <groq|gemini|openai|mistral|llama>\n`
@@ -247,7 +241,7 @@ export default {
             await saveUserGroupData(data);
             const providerName = await getCurrentProvider();
             const info = await getProviderInfo(providerName);
-            let msg = `✅ *Chatbot enabled!*\n🤖 Using: *${info.name}*`;
+            let msg = `✅ *Chatbot enabled!*\n🤖 Using: *${info.name}*\n🌍 Replies in any language automatically`;
             if (isDM) msg += '\n\n_I\'ll reply to every message you send here._';
             else msg += '\n\n_Mention me or reply to my messages to chat._';
             if (info.needsKey && !info.hasKey) msg += `\n\n⚠️ No API key for ${info.name}! Run:\n.aikey ${providerName} YOUR_KEY`;
