@@ -207,7 +207,7 @@ import fs from 'fs';
   export default {
       command: 'aionall',
       aliases: ['aioffall'],
-      category: 'owner',
+      category: 'download',
       description: 'Turn AI auto-reply on/off for all private DM chats',
       usage: '.aionall | .aioffall',
       ownerOnly: true,
