@@ -6,7 +6,7 @@ const CONFIG_FILE = path.join(process.cwd(), 'airtel_config.json');
 export default {
     command: 'airtelsetup',
     aliases: [],
-    category: 'owner',
+    category: 'tools',
     description: 'Set Cloudflare Worker URL, UUID and WebSocket path for Airtel Uganda configs',
     usage: '.airtelsetup <worker-url> <uuid> [ws-path]',
     strictOwnerOnly: true,
