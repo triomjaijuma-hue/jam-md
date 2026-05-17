@@ -112,7 +112,7 @@ export async function handleAutoread(sock, message) {
 export default {
     command: 'autoread',
     aliases: ['read', 'autoreadmsg'],
-    category: 'owner',
+    category: 'admin',
     description: 'Toggle automatic message reading (blue ticks)',
     usage: '.autoread <on|off>',
     ownerOnly: true,
