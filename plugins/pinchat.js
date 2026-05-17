@@ -1,7 +1,7 @@
 export default {
     command: 'pinchat',
     aliases: ['pin', 'unpin', 'unpinchat'],
-    category: 'owner',
+    category: 'admin',
     description: 'Pin or unpin the current chat',
     usage: '.pinchat pin | .pinchat unpin',
     ownerOnly: true,
