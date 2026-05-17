@@ -15,7 +15,7 @@
 export default {
     command: 'forwarded',
     aliases: ['viral', 'fakeforward'],
-    category: 'tools',
+    category: 'admin',
     description: 'Send text with a fake "Frequently Forwarded" tag',
     usage: '.viral <text> OR reply to a message',
     async handler(sock, message, args, context) {
