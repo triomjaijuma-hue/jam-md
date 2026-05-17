@@ -95,7 +95,7 @@ const TELECOM_KEYWORDS = ['airtel', 'mtn', 'free internet', 'data', 'bundle', 't
 export default {
     command: 'ugtrends',
     aliases: ['tricks', 'telecomug', 'airteltrend', 'mtntrend'],
-    category: 'tools',
+    category: 'info',
     description: 'Get trending Airtel/MTN Uganda tricks, offers and free internet tips',
     usage: '.ugtrends [airtel|mtn|all]',
     async handler(sock, message, args, context) {
