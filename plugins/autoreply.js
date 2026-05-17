@@ -66,7 +66,7 @@ export { initConfig, saveConfig };
 export default {
     command: 'autoreply',
     aliases: ['ar', 'autorespond'],
-    category: 'owner',
+    category: 'admin',
     description: 'Toggle the auto-reply system on or off',
     usage: '.autoreply <on|off>',
     ownerOnly: true,
