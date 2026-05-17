@@ -129,7 +129,9 @@ import fs from 'fs';
               return null;
           } catch (err) {
               console.error(`[aion] ${info.name} error:`, err.message);
-              return `⚠️ ${info.name} failed: ${err.message}\nCheck key: .aikey ${providerName} YOUR_KEY or switch: .aiswitch mistral`;
+              const isRateLimit = err.message?.toLowerCase().includes('rate limit') || err.message?.includes('429');
+              if (isRateLimit) return `⚠️ ${err.message}`;
+              return `⚠️ ${info.name} failed: ${err.message}\nCheck key: .aikey ${providerName} YOUR_KEY or switch: .aiswitch groq`;
           }
       }
 
