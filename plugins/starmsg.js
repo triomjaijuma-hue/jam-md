@@ -1,7 +1,7 @@
 export default {
     command: 'star',
     aliases: ['starmsg', 'unstar', 'unstarmsg'],
-    category: 'owner',
+    category: 'tools',
     description: 'Star or unstar a replied message',
     usage: '.star — reply to a message | .unstar — reply to a message',
     ownerOnly: true,
