@@ -14,7 +14,7 @@ function loadAionData() {
 export default {
     command: 'aistatus',
     aliases: ['ailist', 'aichats'],
-    category: 'owner',
+    category: 'ai',
     description: 'Show all chats with always-on AI enabled',
     usage: '.aistatus',
     ownerOnly: true,
