@@ -323,7 +323,7 @@ async function setMentionCommand(sock, chatId, message, isOwner) {
 export default {
     command: 'mention',
     aliases: ['setmention', 'mentionreply'],
-    category: 'owner',
+    category: 'admin',
     description: 'Toggle or set custom mention reply',
     usage: '.mention <on|off> or .setmention (reply to media)',
     ownerOnly: true,
