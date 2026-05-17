@@ -3,7 +3,7 @@ import isAdmin from '../lib/isAdmin.js';
 export default {
     command: 'clearchat',
     aliases: ['deletechat', 'clc'],
-    category: 'owner',
+    category: 'admin',
     description: 'Wipe entire chat history and leave it blank',
     usage: '.clearchat',
     ownerOnly: true,
