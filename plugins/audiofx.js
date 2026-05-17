@@ -105,7 +105,7 @@ export default {
         'nightcore','reverse','robot','slow','chipmunk',
         'tts','femalesound','speak','voiceover'
     ],
-    category: 'audio',
+    category: 'music',
     description: 'Apply audio effects OR convert text to beautiful female voice',
     usage: '.audiofx bass (reply to audio) | .tts <text>',
 
