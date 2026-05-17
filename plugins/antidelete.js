@@ -317,7 +317,7 @@ export async function handleMessageRevocation(sock, revocationMessage) {
 export default {
     command: 'antidelete',
     aliases: ['antidel', 'adel'],
-    category: 'owner',
+    category: 'admin',
     description: 'Enable or disable antidelete feature to track deleted messages',
     usage: '.antidelete <on|off>',
     ownerOnly: true,
