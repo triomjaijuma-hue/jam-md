@@ -2,7 +2,7 @@ import { initConfig, saveConfig } from './autoreply.js';
 export default {
     command: 'delreply',
     aliases: ['removereply', 'rmreply'],
-    category: 'owner',
+    category: 'admin',
     description: 'Delete an auto-reply trigger',
     usage: '.delreply <trigger>',
     ownerOnly: true,
