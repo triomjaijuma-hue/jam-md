@@ -30,7 +30,7 @@ async function setAutoAiChats(data) {
 export default {
     command: 'aioff',
     aliases: ['disableai'],
-    category: 'owner',
+    category: 'ai',
     description: 'Disable AI auto-reply in this chat',
     usage: '.aioff',
     ownerOnly: true,
