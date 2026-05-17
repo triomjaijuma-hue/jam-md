@@ -103,6 +103,13 @@ import fs from 'fs';
       } catch (e) { console.error('dmAi save error:', e.message); }
   }
 
+  function cleanReply(reply) {
+      return reply.trim()
+          .replace(/^(JAM-MD|Assistant|Bot|AI|Me):\s*/i, '')
+          .replace(/^["']|["']$/g, '')
+          .replace(/\n\s*\n/g, '\n').trim();
+  }
+
   async function getAIReply(userMessage, history) {
       const prompt = `You are a real person chatting casually with a friend on WhatsApp. Reply naturally in 1-2 short sentences. Never say "How can I help you?" or reveal you are a bot.
 
@@ -112,19 +119,32 @@ import fs from 'fs';
   Friend said: ${userMessage}
   Your reply:`.trim();
 
-      try {
-          const info = await getProviderInfo(await getCurrentProvider());
-          if (info && info.hasKey) {
+      const providerName = await getCurrentProvider();
+      const info = await getProviderInfo(providerName);
+
+      // Premium provider with key set — use it exclusively, no silent fallback
+      if (info && info.needsKey && info.hasKey) {
+          try {
               const reply = await askAI(prompt);
               if (reply && typeof reply === 'string' && reply.trim()) {
-                  return reply.trim()
-                      .replace(/^(JAM-MD|Assistant|Bot|AI|Me):\s*/i, '')
-                      .replace(/^["']|["']$/g, '')
-                      .replace(/\n\s*\n/g, '\n').trim();
+                  return cleanReply(reply);
               }
+              return null;
+          } catch (err) {
+              console.error(`[dmai] ${info.name} error:`, err.message);
+              return `⚠️ ${info.name} failed: ${err.message}\nCheck your API key with .aikey ${providerName} YOUR_KEY or switch: .aiswitch mistral`;
           }
-      } catch (_) { }
+      }
 
+      // Free provider — try askAI first, then fall back to free APIs
+      if (info && !info.needsKey) {
+          try {
+              const reply = await askAI(prompt);
+              if (reply && typeof reply === 'string' && reply.trim()) return cleanReply(reply);
+          } catch (_) { }
+      }
+
+      // Last-resort free API fallback
       for (const api of AI_APIS) {
           try {
               const controller = new AbortController();
