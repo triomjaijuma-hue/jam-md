@@ -20,7 +20,7 @@ function random(arr) {
 export default {
     command: 'autoreact',
     aliases: ['areact'],
-    category: 'owner',
+    category: 'admin',
     description: 'Toggle auto-react to messages',
     usage: '.autoreact on/off',
     ownerOnly: true,
