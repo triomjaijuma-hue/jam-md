@@ -68,7 +68,7 @@ import { getProviderInfo, getCurrentProvider, PROVIDER_LIST, askAI } from '../li
   export default {
       command: 'aicheck',
       aliases: ['aistatus', 'whichai', 'aiping'],
-      category: 'owner',
+      category: 'ai',
       description: 'Test all AI APIs and providers, show full status',
       usage: '.aicheck',
       ownerOnly: true,
