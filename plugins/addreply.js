@@ -2,7 +2,7 @@ import { initConfig, saveConfig } from './autoreply.js';
 export default {
     command: 'addreply',
     aliases: ['newtrigger', 'setreply'],
-    category: 'owner',
+    category: 'admin',
     description: 'Add an auto-reply trigger',
     usage: '.addreply <trigger> | <response>\nFor exact match: .addreply exact:<trigger> | <response>\nUse {name} in response to mention sender name',
     ownerOnly: true,
