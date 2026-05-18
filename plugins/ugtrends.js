@@ -25,10 +25,10 @@ async function fetchLatestTricks() {
     for (const feed of feeds) {
         try {
             const xml = await fetchUrl(feed.url);
-            const items = [...xml.matchAll(/<item>([sS]*?)</item>/g)].slice(0, 4);
+            const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, 4);
             for (const [, block] of items) {
-                const title = block.match(/<title[^>]*>(?:<![CDATA[)?([sS]*?)(?:]]>)?</title>/i)?.[1]?.trim().replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>') || '';
-                const link  = block.match(/<link>(.*?)</link>/i)?.[1]?.trim() || '';
+                const title = block.match(/<title[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i)?.[1]?.trim().replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>') || '';
+                const link = block.match(/<link>(.*?)<\/link>/i)?.[1]?.trim() || '';
                 if (title && link && !results.find(r => r.link === link)) {
                     results.push({ title, link, tag: feed.tag });
                 }
@@ -48,13 +48,10 @@ const MTN_APN = `📡 *MTN Uganda APN Settings*
 • MMSC: http://mmsc.mtn.co.ug
 • MMS Proxy: 10.0.0.138
 • MMS Port: 9201
-• MCC: 641
-• MNC: 10
 • APN Type: default,supl,mms
 
 ━━━ 🔥 *Trick APN 1 — Faster Speed* ━━━
 • APN: mtnweb
-• Proxy: (leave blank)
 • Port: 8080
 • DNS 1: 8.8.8.8
 • DNS 2: 8.8.4.4
@@ -62,8 +59,6 @@ const MTN_APN = `📡 *MTN Uganda APN Settings*
 
 ━━━ 🔥 *Trick APN 2 — Bypass Throttle* ━━━
 • APN: internet.mtn.co.ug
-• Proxy: (leave blank)
-• Port: (leave blank)
 • DNS 1: 1.1.1.1
 • DNS 2: 1.0.0.1
 • APN Type: default,supl
@@ -77,7 +72,7 @@ const MTN_APN = `📡 *MTN Uganda APN Settings*
 
 💡 *Tips:*
 • After changing APN → restart phone
-• Turn airplane mode ON then OFF
+• Toggle airplane mode ON then OFF
 • Works best with LTE/4G bands enabled
 • Dial *165*5# to confirm data is active`;
 
@@ -91,13 +86,10 @@ const AIRTEL_APN = `📡 *Airtel Uganda APN Settings*
 • MMSC: http://100.1.201.171:10021/mmsc
 • MMS Proxy: 100.1.201.172
 • MMS Port: 8799
-• MCC: 641
-• MNC: 14
 • APN Type: default,supl,mms
 
 ━━━ 🔥 *Trick APN 1 — Faster Speed* ━━━
 • APN: airtelweb
-• Proxy: (leave blank)
 • Port: 8080
 • DNS 1: 8.8.8.8
 • DNS 2: 8.8.4.4
@@ -105,8 +97,6 @@ const AIRTEL_APN = `📡 *Airtel Uganda APN Settings*
 
 ━━━ 🔥 *Trick APN 2 — Bypass Throttle* ━━━
 • APN: airtelmada
-• Proxy: (leave blank)
-• Port: (leave blank)
 • DNS 1: 1.1.1.1
 • DNS 2: 1.0.0.1
 • APN Type: default,supl
@@ -139,12 +129,12 @@ const OTHER_TRICKS = `🛠️ *Other Uganda Internet Tricks*
 • On Android: Settings → WiFi → Private DNS → one.one.one.one
 • Works on any network — faster page loads
 
-━━━ 📱 *App Tricks* ━━━
-• *Opera Mini*: Uses 90% less data (turn on extreme savings)
-• *Brave Browser*: Built-in VPN + ad block = faster + saves data
-• *YouTube*: Long press video → Quality → 144p saves 80% data
-• *WhatsApp*: Settings → Storage → auto-download off on mobile data
-• *Telegram*: Settings → Data & Storage → reduce to minimum
+━━━ 📱 *App Data Saver Tricks* ━━━
+• Opera Mini: turn on extreme savings mode (saves 90%)
+• Brave Browser: built-in VPN + ad block = faster + saves data
+• YouTube: long press video → Quality → 144p saves 80% data
+• WhatsApp: Settings → Storage → auto-download off on mobile data
+• Telegram: Settings → Data & Storage → reduce to minimum
 
 ━━━ 💳 *SIM Card Tricks* ━━━
 • New SIM = free data promos (MTN gives 1GB to new SIMs)
@@ -153,15 +143,16 @@ const OTHER_TRICKS = `🛠️ *Other Uganda Internet Tricks*
 • Airtel loyalty offer → dial *174*7# daily to check freebies
 
 ━━━ 📡 *Free Internet Apps (No APN Needed)* ━━━
-1. *Psiphon Pro* — auto-finds working servers
-2. *Lantern* — peer-to-peer free browsing
-3. *Ultrasurf* — simple, no config
-4. *Tor Browser* — anonymous + sometimes bypasses throttling
-5. *KPN Tunnel Rev* — HTTP tunnel, easy setup`;
+1. Psiphon Pro — auto-finds working servers
+2. Lantern — peer-to-peer free browsing
+3. Ultrasurf — simple, no config needed
+4. Tor Browser — anonymous + bypasses throttling
+5. KPN Tunnel Rev — HTTP tunnel, easy setup
+6. Ha Tunnel Plus — best for Uganda configs`;
 
 const MTN_BUNDLES = `📶 *MTN Uganda Data Bundles*
 
-💰 *Daily:*
+💰 *Daily (Cheapest):*
 • 250MB — UGX 500 → Dial *165*2*6*1#
 • 500MB — UGX 999 → Dial *165*2*6*2#
 • 1GB   — UGX 1,500 → Dial *165*2*6*3#
@@ -181,20 +172,20 @@ const MTN_BUNDLES = `📶 *MTN Uganda Data Bundles*
 
 const AIRTEL_BUNDLES = `📶 *Airtel Uganda Data Bundles*
 
-💰 *Daily:*
-• 50MB   — UGX 200 → Dial *185*2*1#
-• 150MB  — UGX 500 → Dial *185*2*2#
-• 500MB  — UGX 1,000 → Dial *185*2*3#
-• 1GB    — UGX 2,000 → Dial *185*2*4#
+💰 *Daily (Cheapest):*
+• 50MB  — UGX 200 → Dial *185*2*1#
+• 150MB — UGX 500 → Dial *185*2*2#
+• 500MB — UGX 1,000 → Dial *185*2*3#
+• 1GB   — UGX 2,000 → Dial *185*2*4#
 
 💰 *Weekly:*
-• 2GB    — UGX 4,000 → Dial *185*2*5#
-• 4GB    — UGX 7,000 → Dial *185*2*6#
+• 2GB — UGX 4,000 → Dial *185*2*5#
+• 4GB — UGX 7,000 → Dial *185*2*6#
 
 💰 *Monthly:*
-• 5GB    — UGX 10,000 → Dial *185*2*7#
-• 10GB   — UGX 17,000 → Dial *185*2*8#
-• 20GB   — UGX 27,000 → Dial *185*2*9#
+• 5GB  — UGX 10,000 → Dial *185*2*7#
+• 10GB — UGX 17,000 → Dial *185*2*8#
+• 20GB — UGX 27,000 → Dial *185*2*9#
 
 🎁 Personal Offers → Dial *174*7#
 🌙 Midnight (12am-5am) → Dial *174*7#
@@ -217,20 +208,44 @@ const MINUTES_BUNDLES = `📞 *Uganda Call Bundles*
 • 200 mins — UGX 5,000 → Dial *185*3*5#
 • Borrow airtime → Dial *185*5#`;
 
+const MENU = `🇺🇬 *Uganda Internet Tricks & Deals*
+━━━━━━━━━━━━━━━━━━━━━
+
+📡 *.tricks apn*
+   APN settings tricks for MTN & Airtel
+   (faster speed, bypass throttle, gaming)
+
+🟡 *.tricks mtn*
+   MTN APN tricks + cheapest bundle prices
+
+🔴 *.tricks airtel*
+   Airtel APN tricks + cheapest bundle prices
+
+📊 *.tricks data*
+   All data bundle prices (both networks)
+
+📞 *.tricks minutes*
+   Cheapest call bundles + USSD codes
+
+🛠️ *.tricks other*
+   Signal, DNS, SIM tricks & free internet apps
+
+📰 *.tricks news*
+   Latest Uganda internet tricks (live fetch)`;
+
 export default {
     command: 'tricks',
     aliases: ['ugdeals', 'mtndeals', 'airteldeals', 'vpnug', 'freeug', 'ugbundles', 'apn', 'ugapn'],
     category: 'tools',
     description: 'Uganda APN tricks, VPN configs, cheap bundles, data & call deals',
-    usage: '.tricks [apn|mtn|airtel|minutes|other|news]',
+    usage: '.tricks [apn|mtn|airtel|data|minutes|other|news]',
     async handler(sock, message, args, context) {
         const { chatId } = context;
         const sub = (args[0] || '').toLowerCase();
 
         if (sub === 'apn' || sub === 'apns') {
             await sock.sendMessage(chatId, { text: MTN_APN }, { quoted: message });
-            await sock.sendMessage(chatId, { text: AIRTEL_APN }, { quoted: message });
-            return;
+            return sock.sendMessage(chatId, { text: AIRTEL_APN }, { quoted: message });
         }
         if (sub === 'mtn') {
             await sock.sendMessage(chatId, { text: MTN_APN }, { quoted: message });
@@ -240,15 +255,15 @@ export default {
             await sock.sendMessage(chatId, { text: AIRTEL_APN }, { quoted: message });
             return sock.sendMessage(chatId, { text: AIRTEL_BUNDLES }, { quoted: message });
         }
+        if (sub === 'data') {
+            await sock.sendMessage(chatId, { text: MTN_BUNDLES }, { quoted: message });
+            return sock.sendMessage(chatId, { text: AIRTEL_BUNDLES }, { quoted: message });
+        }
         if (sub === 'minutes' || sub === 'calls' || sub === 'mins') {
             return sock.sendMessage(chatId, { text: MINUTES_BUNDLES }, { quoted: message });
         }
         if (sub === 'other' || sub === 'more' || sub === 'tips') {
             return sock.sendMessage(chatId, { text: OTHER_TRICKS }, { quoted: message });
-        }
-        if (sub === 'data') {
-            await sock.sendMessage(chatId, { text: MTN_BUNDLES }, { quoted: message });
-            return sock.sendMessage(chatId, { text: AIRTEL_BUNDLES }, { quoted: message });
         }
         if (sub === 'news' || sub === 'latest') {
             await sock.sendMessage(chatId, { text: '🔍 Fetching latest Uganda internet tricks & news...' }, { quoted: message });
@@ -257,46 +272,14 @@ export default {
                 if (!articles.length) {
                     return sock.sendMessage(chatId, { text: '❌ Could not fetch news right now. Try again later.' }, { quoted: message });
                 }
-                const text = '📰 *Latest Uganda Internet Tricks & News*
-
-' +
-                    articles.map((a, i) => `${a.tag} *${a.title}*
-🔗 ${a.link}`).join('
-
-');
+                const text = '📰 *Latest Uganda Internet Tricks & News*\n\n' +
+                    articles.map(a => `${a.tag} *${a.title}*\n🔗 ${a.link}`).join('\n\n');
                 return sock.sendMessage(chatId, { text }, { quoted: message });
             } catch {
                 return sock.sendMessage(chatId, { text: '❌ Failed to fetch news.' }, { quoted: message });
             }
         }
 
-        // Default menu
-        const menu = `🇺🇬 *Uganda Internet Tricks & Deals*
-━━━━━━━━━━━━━━━━━━━━━
-
-📡 *.tricks apn*
-   APN settings tricks for MTN & Airtel
-   (faster speed, bypass throttle, gaming)
-
-🟡 *.tricks mtn*
-   MTN APN tricks + bundle prices
-
-🔴 *.tricks airtel*
-   Airtel APN tricks + bundle prices
-
-📊 *.tricks data*
-   All data bundle prices
-
-📞 *.tricks minutes*
-   Cheap call bundles
-
-🛠️ *.tricks other*
-   Signal tricks, DNS, app tips, SIM tricks
-   free internet apps (no APN needed)
-
-📰 *.tricks news*
-   Latest Uganda internet tricks (live)`;
-
-        await sock.sendMessage(chatId, { text: menu }, { quoted: message });
+        return sock.sendMessage(chatId, { text: MENU }, { quoted: message });
     }
 };
