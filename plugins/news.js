@@ -40,34 +40,47 @@ const CATEGORY_LABELS = {
     africa: '🌍 Africa News',
 };
 
+function cleanText(raw = '') {
+    return raw
+        .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#\d+;/g, '')
+        .replace(/\s{2,}/g, ' ').trim();
+}
+
+function getBestDesc(block) {
+    // Priority: content:encoded > description > summary — whichever has most text
+    const encoded  = (/<content:encoded[^>]*>([\s\S]*?)<\/content:encoded>/i.exec(block))?.[1];
+    const desc     = (/<description[^>]*>([\s\S]*?)<\/description>/i.exec(block))?.[1];
+    const summary  = (/<summary[^>]*>([\s\S]*?)<\/summary>/i.exec(block))?.[1];
+    const cleaned  = [encoded, desc, summary]
+        .map(s => cleanText(s || ''))
+        .sort((a, b) => b.length - a.length);
+    return cleaned[0] || '';
+}
+
 function parseRss(xml, sourceName) {
     const items = [];
     const itemRegex = /<item>([\s\S]*?)<\/item>/g;
     let m;
-    while ((m = itemRegex.exec(xml)) !== null && items.length < 5) {
+    while ((m = itemRegex.exec(xml)) !== null && items.length < 4) {
         const block = m[1];
-        const title = (/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/i.exec(block))?.[1]
-            ?.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#\d+;/g, '').trim();
-        const desc  = (/<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/description>/i.exec(block))?.[1]
-            ?.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#\d+;/g, '').trim();
-        const link  = (/<link>(.*?)<\/link>/i.exec(block))?.[1]?.trim() ||
-                      (/<guid[^>]*>(https?:\/\/[^<]+)<\/guid>/i.exec(block))?.[1]?.trim();
+        const title = cleanText((/<title[^>]*>([\s\S]*?)<\/title>/i.exec(block))?.[1] || '');
+        const desc  = getBestDesc(block);
         if (title && title.length > 5) {
-            items.push({ title, desc: desc?.slice(0, 140) || '', link });
+            items.push({ title, desc: desc.slice(0, 500) });
         }
     }
     // Also try <entry> format (Atom feeds)
     if (items.length === 0) {
         const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
-        while ((m = entryRegex.exec(xml)) !== null && items.length < 5) {
+        while ((m = entryRegex.exec(xml)) !== null && items.length < 4) {
             const block = m[1];
-            const title = (/<title[^>]*>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/i.exec(block))?.[1]
-                ?.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').trim();
-            const link  = (/<link[^>]*href="([^"]+)"/i.exec(block))?.[1];
-            const desc  = (/<summary[^>]*>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/summary>/i.exec(block))?.[1]
-                ?.replace(/<[^>]+>/g, '').trim();
+            const title = cleanText((/<title[^>]*>([\s\S]*?)<\/title>/i.exec(block))?.[1] || '');
+            const desc  = getBestDesc(block);
             if (title && title.length > 5) {
-                items.push({ title, desc: desc?.slice(0, 140) || '', link });
+                items.push({ title, desc: desc.slice(0, 500) });
             }
         }
     }
@@ -131,9 +144,10 @@ export default {
         text += `🕐 _${now} EAT_\n`;
         text += `━━━━━━━━━━━━━━━━━━━\n\n`;
         result.items.forEach((a, i) => {
-            text += `*${i + 1}.* ${a.title}\n`;
-            if (a.desc && a.desc.length > 10) text += `_${a.desc}${a.desc.length >= 140 ? '...' : ''}_\n`;
-            if (a.link) text += `🔗 ${a.link}\n`;
+            text += `*${i + 1}. ${a.title}*\n`;
+            if (a.desc && a.desc.length > 10) {
+                text += `${a.desc}${a.desc.length >= 500 ? '...' : ''}\n`;
+            }
             text += '\n';
         });
         text += `━━━━━━━━━━━━━━━━━━━\n`;
