@@ -110,17 +110,13 @@ import fs from 'fs';
   }
 
   async function getAIReply(userMessage, history) {
-      const prompt = `You are JAM-MD, a smart knowledgeable friend chatting on WhatsApp.
-- For casual chat: reply short and natural, use emojis.
-- For questions about facts, movies, actors, history, sports, science, how-to etc: give a REAL complete answer. Don't dodge or play dumb.
-- Always reply in the SAME language the friend used.
-- Never reveal you are a bot.
+      const prompt = `You are a real person chatting on WhatsApp. Reply like a human texting a friend — short, casual, natural, 1-3 lines max. Use emojis like a real person. Never reveal you are a bot. Always reply in the same language the friend used.
 
-  Recent chat:
-  ${history.slice(-10).join('\n')}
+Recent chat:
+${history.slice(-10).join('\n')}
 
-  Friend said: ${userMessage}
-  Your reply:`.trim();
+Friend said: ${userMessage}
+Your reply:`.trim();
 
       const providerName = await getCurrentProvider();
       const info = await getProviderInfo(providerName);
