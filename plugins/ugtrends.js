@@ -38,82 +38,56 @@ async function fetchLatestTricks() {
     return results.slice(0, 10);
 }
 
-const MTN_APN = `📡 *MTN Uganda APN Settings*
+const ALL_APN = `📡 *Uganda APN Settings & Tricks*
 
-━━━ ✅ *Standard APN (Official)* ━━━
-• Name: MTN Uganda
+━━━━━━ 🟡 *MTN UGANDA* ━━━━━━
+
+✅ *Standard APN:*
 • APN: internet
-• Username: (leave blank)
-• Password: (leave blank)
-• MMSC: http://mmsc.mtn.co.ug
-• MMS Proxy: 10.0.0.138
-• MMS Port: 9201
+• Username/Password: (leave blank)
 • APN Type: default,supl,mms
 
-━━━ 🔥 *Trick APN 1 — Faster Speed* ━━━
-• APN: mtnweb
-• Port: 8080
-• DNS 1: 8.8.8.8
-• DNS 2: 8.8.4.4
-• APN Type: default,supl
+🔥 *Trick 1 — Faster Speed:*
+• APN: mtnweb  |  Port: 8080
+• DNS 1: 8.8.8.8  |  DNS 2: 8.8.4.4
 
-━━━ 🔥 *Trick APN 2 — Bypass Throttle* ━━━
+🔥 *Trick 2 — Bypass Throttle:*
 • APN: internet.mtn.co.ug
-• DNS 1: 1.1.1.1
-• DNS 2: 1.0.0.1
-• APN Type: default,supl
+• DNS 1: 1.1.1.1  |  DNS 2: 1.0.0.1
 
-━━━ 🔥 *Trick APN 3 — Low Ping Gaming* ━━━
-• APN: mtnmobile
-• DNS 1: 8.8.8.8
-• DNS 2: 4.4.4.4
-• Bearer: LTE (4G only)
+🔥 *Trick 3 — Low Ping Gaming:*
+• APN: mtnmobile  |  Bearer: LTE only
+• DNS 1: 8.8.8.8  |  DNS 2: 4.4.4.4
 • APN Protocol: IPv4/IPv6
 
-💡 *Tips:*
-• After changing APN → restart phone
-• Toggle airplane mode ON then OFF
-• Works best with LTE/4G bands enabled
-• Dial *165*5# to confirm data is active`;
+📊 Check MTN data balance → Dial *165#
 
-const AIRTEL_APN = `📡 *Airtel Uganda APN Settings*
+━━━━━━ 🔴 *AIRTEL UGANDA* ━━━━━━
 
-━━━ ✅ *Standard APN (Official)* ━━━
-• Name: Airtel Uganda
+✅ *Standard APN:*
 • APN: internet
-• Username: (leave blank)
-• Password: (leave blank)
-• MMSC: http://100.1.201.171:10021/mmsc
-• MMS Proxy: 100.1.201.172
-• MMS Port: 8799
+• Username/Password: (leave blank)
 • APN Type: default,supl,mms
 
-━━━ 🔥 *Trick APN 1 — Faster Speed* ━━━
-• APN: airtelweb
-• Port: 8080
-• DNS 1: 8.8.8.8
-• DNS 2: 8.8.4.4
-• APN Type: default,supl
+🔥 *Trick 1 — Faster Speed:*
+• APN: airtelweb  |  Port: 8080
+• DNS 1: 8.8.8.8  |  DNS 2: 8.8.4.4
 
-━━━ 🔥 *Trick APN 2 — Bypass Throttle* ━━━
+🔥 *Trick 2 — Bypass Throttle:*
 • APN: airtelmada
-• DNS 1: 1.1.1.1
-• DNS 2: 1.0.0.1
-• APN Type: default,supl
+• DNS 1: 1.1.1.1  |  DNS 2: 1.0.0.1
 
-━━━ 🔥 *Trick APN 3 — Midnight Free Data* ━━━
-• APN: internet
-• Proxy: 197.157.161.10
-• Port: 8080
-• DNS 1: 8.8.8.8
-• DNS 2: 8.8.4.4
+🔥 *Trick 3 — Midnight Free Data:*
+• APN: internet  |  Proxy: 197.157.161.10
+• Port: 8080  |  DNS: 8.8.8.8
 • Active: 12am – 5am daily
 
-💡 *Tips:*
+📊 Check Airtel data balance → Dial *185#
+
+━━━━━━ 💡 *Tips (Both Networks)* ━━━━━━
 • Restart phone after changing APN
-• Toggle airplane mode after applying
-• Set Bearer to LTE for fastest speeds
-• Dial *185*7# to confirm data is active`;
+• Toggle airplane mode ON then OFF
+• Set Bearer to LTE for fastest 4G speeds`;
 
 const OTHER_TRICKS = `🛠️ *Other Uganda Internet Tricks*
 
@@ -244,15 +218,12 @@ export default {
         const sub = (args[0] || '').toLowerCase();
 
         if (sub === 'apn' || sub === 'apns') {
-            await sock.sendMessage(chatId, { text: MTN_APN }, { quoted: message });
-            return sock.sendMessage(chatId, { text: AIRTEL_APN }, { quoted: message });
+            return sock.sendMessage(chatId, { text: ALL_APN }, { quoted: message });
         }
         if (sub === 'mtn') {
-            await sock.sendMessage(chatId, { text: MTN_APN }, { quoted: message });
             return sock.sendMessage(chatId, { text: MTN_BUNDLES }, { quoted: message });
         }
         if (sub === 'airtel') {
-            await sock.sendMessage(chatId, { text: AIRTEL_APN }, { quoted: message });
             return sock.sendMessage(chatId, { text: AIRTEL_BUNDLES }, { quoted: message });
         }
         if (sub === 'data') {
