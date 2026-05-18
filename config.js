@@ -29,6 +29,12 @@ const config = {
     // API Keys
     giphyApiKey: process.env.GIPHY_API_KEY || 'qnl7ssQChTdPjsKta2Ax2LMaGXz303tq',
     removeBgKey: process.env.REMOVEBG_KEY || '',
+    // AI Provider — set these as env vars on your hosting platform so they
+    // survive every crash, redeploy, and restart automatically
+    aiProvider: process.env.AI_PROVIDER || 'mistral',
+    groqApiKey: process.env.GROQ_API_KEY || '',
+    geminiApiKey: process.env.GEMINI_API_KEY || '',
+    openaiApiKey: process.env.OPENAI_API_KEY || '',
     // Warn system
     warnCount: 3,
     // External APIs
