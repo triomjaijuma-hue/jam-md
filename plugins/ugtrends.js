@@ -1,205 +1,235 @@
+// plugins/ugtrends.js — Uganda VPN tricks, cheap bundles & deals
+// Commands: .tricks  .ugdeals  .mtndeals  .airteldeals  .vpnug
+
 import https from 'https';
 
 function fetchUrl(url) {
     return new Promise((resolve, reject) => {
-        const req = https.get(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36' },
-            timeout: 10000
-        }, res => {
-            // Follow redirect
-            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                return fetchUrl(res.headers.location).then(resolve).catch(reject);
-            }
-            let data = '';
-            res.on('data', c => data += c);
-            res.on('end', () => resolve(data));
+        const mod = url.startsWith('https') ? https : (await import('http')).default;
+        const req = https.get(url, { headers: { 'User-Agent': 'JAM-MD/1.0' }, timeout: 10000 }, res => {
+            let d = '';
+            res.on('data', c => d += c);
+            res.on('end', () => resolve(d));
         });
         req.on('error', reject);
         req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
     });
 }
 
-function stripTags(str) {
-    return str.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#039;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
-}
-
-function parseRssItems(xml, keywords, limit = 5) {
-    const items = [];
-    const itemMatches = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
-    for (const item of itemMatches) {
-        const titleMatch = item.match(/<title[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i);
-        const linkMatch = item.match(/<link[^>]*>([\s\S]*?)<\/link>/i) ||
-                          item.match(/<guid[^>]*>(https?:\/\/[^<]+)<\/guid>/i);
-        const descMatch = item.match(/<description[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/i);
-        const dateMatch = item.match(/<pubDate[^>]*>([\s\S]*?)<\/pubDate>/i);
-
-        const title = titleMatch ? stripTags(titleMatch[1]) : '';
-        const link = linkMatch ? linkMatch[1].trim() : '';
-        const desc = descMatch ? stripTags(descMatch[1]).slice(0, 120) : '';
-        const date = dateMatch ? new Date(dateMatch[1]).toLocaleDateString('en-UG', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
-
-        if (!title || !link) continue;
-
-        // Filter by keywords if provided
-        if (keywords && keywords.length > 0) {
-            const combined = (title + ' ' + desc).toLowerCase();
-            if (!keywords.some(k => combined.includes(k.toLowerCase()))) continue;
-        }
-
-        items.push({ title, link, desc, date });
-        if (items.length >= limit) break;
-    }
-    return items;
-}
-
-async function fetchTechJaja(keyword) {
-    try {
-        const url = `https://www.techjaja.com/?s=${encodeURIComponent(keyword)}&feed=rss2`;
-        const xml = await fetchUrl(url);
-        return parseRssItems(xml, null, 4);
-    } catch {
-        return [];
-    }
-}
-
-async function fetchDignited(keyword) {
-    try {
-        const url = `https://www.dignited.com/?s=${encodeURIComponent(keyword)}&feed=rss2`;
-        const xml = await fetchUrl(url);
-        return parseRssItems(xml, null, 3);
-    } catch {
-        return [];
-    }
-}
-
-async function fetchMtnPromotions() {
-    try {
-        const html = await fetchUrl('https://www.mtn.co.ug/promotion/');
-        // Parse promotion titles from MTN's WordPress page
-        const titles = [];
-        const matches = html.match(/<h[1-4][^>]*>([\s\S]{5,150}?)<\/h[1-4]>/gi) || [];
-        for (const m of matches) {
-            const text = stripTags(m);
-            if (text.length > 10 && text.length < 120 && !/menu|nav|footer|cookie|copyright/i.test(text)) {
-                titles.push(text);
+async function fetchLatestTricks() {
+    const feeds = [
+        'https://www.techjaja.com/?s=free+internet+uganda&feed=rss2',
+        'https://www.techjaja.com/?s=vpn+uganda&feed=rss2',
+        'https://www.techjaja.com/?s=mtn+airtel+uganda&feed=rss2',
+    ];
+    const results = [];
+    for (const feed of feeds) {
+        try {
+            const xml = await fetchUrl(feed);
+            const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, 3);
+            for (const [, block] of items) {
+                const title = block.match(/<title[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i)?.[1]?.trim() || '';
+                const link  = block.match(/<link>(.*?)<\/link>/i)?.[1]?.trim() || '';
+                if (title && link && !results.find(r => r.link === link)) {
+                    results.push({ title, link });
+                }
             }
-        }
-        return titles.slice(0, 5);
-    } catch {
-        return [];
+        } catch {}
     }
+    return results.slice(0, 6);
 }
 
-const TELECOM_KEYWORDS = ['airtel', 'mtn', 'free internet', 'data', 'bundle', 'trick', 'offer', 'promo', 'discount', 'Uganda'];
+// ── Static bundle data (updated regularly) ──────────────────────────────────
+const MTN_BUNDLES = [
+`📶 *MTN Uganda Data Bundles*
+
+💰 *Cheap Daily:*
+• 250MB — UGX 500 → Dial *165*2*6*1#
+• 500MB — UGX 999 → Dial *165*2*6*2#
+• 1GB   — UGX 1,500 → Dial *165*2*6*3#
+
+💰 *Weekly:*
+• 1.5GB — UGX 3,000 → Dial *165*2*6*4#
+• 3GB   — UGX 5,000 → Dial *165*2*6*5#
+
+💰 *Monthly:*
+• 5GB   — UGX 10,000 → Dial *165*2*6*6#
+• 10GB  — UGX 18,000 → Dial *165*2*6*7#
+• 20GB  — UGX 30,000 → Dial *165*2*6*8#
+
+🎁 *Personal Offers* → Dial *165*2#
+📊 *Check Balance* → Dial *165*5#
+🌙 *Night Bundles (12am-6am)* → Dial *165*2*9#`
+];
+
+const AIRTEL_BUNDLES = [
+`📶 *Airtel Uganda Data Bundles*
+
+💰 *Cheap Daily:*
+• 50MB   — UGX 200 → Dial *185*2*1#
+• 150MB  — UGX 500 → Dial *185*2*2#
+• 500MB  — UGX 1,000 → Dial *185*2*3#
+• 1GB    — UGX 2,000 → Dial *185*2*4#
+
+💰 *Weekly:*
+• 2GB    — UGX 4,000 → Dial *185*2*5#
+• 4GB    — UGX 7,000 → Dial *185*2*6#
+
+💰 *Monthly:*
+• 5GB    — UGX 10,000 → Dial *185*2*7#
+• 10GB   — UGX 17,000 → Dial *185*2*8#
+• 20GB   — UGX 27,000 → Dial *185*2*9#
+
+🎁 *Personal Offers* → Dial *174*7#
+📊 *Check Balance* → Dial *185*7#
+🌙 *Midnight (12am-5am)* → Dial *174*7#`
+];
+
+const MTN_MINUTES = `📞 *MTN Uganda Call Bundles*
+
+• 10 mins  — UGX 500 → Dial *165*3*1#
+• 30 mins  — UGX 1,000 → Dial *165*3*2#
+• 60 mins  — UGX 2,000 → Dial *165*3*3#
+• 100 mins — UGX 3,000 → Dial *165*3*4#
+• 300 mins — UGX 8,000 → Dial *165*3*5#
+
+📲 *On-net (MTN to MTN):* 1 UGX/sec
+📲 *Off-net (MTN to other):* 1.5 UGX/sec
+💬 *Missed call alert* → Dial *160#`;
+
+const AIRTEL_MINUTES = `📞 *Airtel Uganda Call Bundles*
+
+• 15 mins  — UGX 500 → Dial *185*3*1#
+• 30 mins  — UGX 1,000 → Dial *185*3*2#
+• 60 mins  — UGX 1,500 → Dial *185*3*3#
+• 200 mins — UGX 5,000 → Dial *185*3*5#
+
+📲 *Airtel to Airtel:* 0.5 UGX/sec
+📲 *Off-net:* 1 UGX/sec`;
+
+const VPN_TRICKS = `🔐 *Uganda VPN Tricks (Free Internet)*
+
+━━━━ 🟡 *MTN Uganda* ━━━━
+📱 *HTTP Custom Config:*
+• Server: web.whatsapp.com
+• Port: 443 (SSL)
+• SNI: web.whatsapp.com
+• Bug host: web.whatsapp.com
+• Method: GET
+
+📱 *HTTP Injector:*
+• Payload: GET / HTTP/1.1[crlf]Host: web.whatsapp.com[crlf]Upgrade: websocket[crlf][crlf]
+• Server: 41.189.0.1 (MTN Uganda)
+• Port: 8080
+
+━━━━ 🔴 *Airtel Uganda* ━━━━
+📱 *HTTP Custom:*
+• Server: 0.facebook.com  
+• Port: 80
+• Bug host: 0.facebook.com
+• Method: GET
+
+📱 *HTTP Injector:*
+• Payload: GET / HTTP/1.1[crlf]Host: 0.facebook.com[crlf][crlf]
+• Server: 197.157.161.10
+• Port: 8080
+
+━━━━ ⚡ *Best Free VPN Apps* ━━━━
+1. *HTTP Custom* — Best for configs above
+2. *HTTP Injector* — Import .ehi files
+3. *OpenVPN* — For .ovpn files
+4. *WireGuard* — Fastest speeds
+5. *Psiphon Pro* — No config needed
+
+⚠️ _Tricks may stop working. Join Uganda tech groups for latest configs._`;
+
+const SAVER_TIPS = `💡 *Uganda Internet Saver Tips*
+
+✅ *Save Data:*
+• Use WhatsApp on WiFi only → Settings > Storage
+• YouTube: Set quality to 144p or 240p
+• Disable auto-download in WhatsApp
+• Use Opera Mini browser (compresses data 90%)
+• Turn off background app refresh
+
+✅ *Get More Data for Less:*
+• MTN *Borrow Data* → Dial *165*6#
+• Airtel *Borrow Data* → Dial *185*5#
+• Check personal offers daily — they reset
+• Night bundles are CHEAPEST (12am–5am)
+• Weekend promos — always check Friday
+
+✅ *Free WiFi Spots (Kampala):*
+• KFC, Nando's, most malls
+• Makerere University campus
+• Garden City, Acacia Mall
+• Uganda Telecom WiFi zones`;
 
 export default {
-    command: 'ugtrends',
-    aliases: ['tricks', 'telecomug', 'airteltrend', 'mtntrend'],
-    category: 'info',
-    description: 'Get trending Airtel/MTN Uganda tricks, offers and free internet tips',
-    usage: '.ugtrends [airtel|mtn|all]',
+    command: 'tricks',
+    aliases: ['ugdeals', 'mtndeals', 'airteldeals', 'vpnug', 'freeug', 'ugbundles'],
+    category: 'tools',
+    description: 'Uganda VPN tricks, cheap bundles, data & call deals for MTN and Airtel',
+    usage: '.tricks [vpn|mtn|airtel|minutes|tips|news]',
     async handler(sock, message, args, context) {
-        const chatId = context.chatId || message.key.remoteJid;
-        const filter = (args[0] || 'all').toLowerCase();
+        const { chatId } = context;
+        const sub = (args[0] || '').toLowerCase();
 
-        await sock.sendMessage(chatId, {
-            text: '🔍 Fetching latest Airtel/MTN Uganda trends & tricks...'
-        }, { quoted: message });
-
-        // Build search queries based on filter
-        const searchQuery = filter === 'airtel'
-            ? 'airtel uganda free internet offer'
-            : filter === 'mtn'
-            ? 'mtn uganda free internet bundle offer'
-            : 'airtel mtn uganda free internet';
-
-        // Fetch all sources in parallel
-        const [tjArticles, digArticles, mtnPromos] = await Promise.all([
-            fetchTechJaja(searchQuery),
-            fetchDignited(searchQuery),
-            filter !== 'airtel' ? fetchMtnPromotions() : Promise.resolve([])
-        ]);
-
-        let hasContent = false;
-
-        // MTN Official Promotions
-        if (mtnPromos.length > 0 && filter !== 'airtel') {
-            hasContent = true;
-            let msg = '📡 *MTN Uganda — Current Promotions*\n';
-            msg += '🔗 mtn.co.ug/promotion\n\n';
-            mtnPromos.forEach((p, i) => { msg += `${i + 1}. ${p}\n`; });
-            msg += '\n_Visit mtn.co.ug for full details_';
-            await sock.sendMessage(chatId, { text: msg });
+        if (sub === 'vpn') {
+            return sock.sendMessage(chatId, { text: VPN_TRICKS }, { quoted: message });
         }
-
-        // TechJaja Articles
-        if (tjArticles.length > 0) {
-            hasContent = true;
-            let msg = '📰 *TechJaja — Trending Uganda Telecom Articles*\n\n';
-            for (const a of tjArticles) {
-                msg += `🔹 *${a.title}*\n`;
-                if (a.date) msg += `📅 ${a.date}\n`;
-                if (a.desc) msg += `${a.desc}...\n`;
-                msg += `🔗 ${a.link}\n\n`;
+        if (sub === 'mtn') {
+            return sock.sendMessage(chatId, { text: MTN_BUNDLES[0] }, { quoted: message });
+        }
+        if (sub === 'airtel') {
+            return sock.sendMessage(chatId, { text: AIRTEL_BUNDLES[0] }, { quoted: message });
+        }
+        if (sub === 'minutes' || sub === 'calls' || sub === 'mins') {
+            const text = MTN_MINUTES + '\n\n' + AIRTEL_MINUTES;
+            return sock.sendMessage(chatId, { text }, { quoted: message });
+        }
+        if (sub === 'tips' || sub === 'save') {
+            return sock.sendMessage(chatId, { text: SAVER_TIPS }, { quoted: message });
+        }
+        if (sub === 'news' || sub === 'latest') {
+            await sock.sendMessage(chatId, { text: '🔍 Fetching latest Uganda internet news...' }, { quoted: message });
+            try {
+                const articles = await fetchLatestTricks();
+                if (!articles.length) {
+                    return sock.sendMessage(chatId, { text: '❌ Could not fetch news right now. Try again later.' }, { quoted: message });
+                }
+                const text = '📰 *Latest Uganda Internet News & Tricks*\n\n' +
+                    articles.map((a, i) => `${i + 1}. *${a.title}*\n   🔗 ${a.link}`).join('\n\n');
+                return sock.sendMessage(chatId, { text }, { quoted: message });
+            } catch {
+                return sock.sendMessage(chatId, { text: '❌ Failed to fetch news.' }, { quoted: message });
             }
-            await sock.sendMessage(chatId, { text: msg.trim() });
         }
 
-        // Dignited Articles
-        if (digArticles.length > 0) {
-            hasContent = true;
-            let msg = '📰 *Dignited — Uganda Tech & Telecom News*\n\n';
-            for (const a of digArticles) {
-                msg += `🔹 *${a.title}*\n`;
-                if (a.date) msg += `📅 ${a.date}\n`;
-                if (a.desc) msg += `${a.desc}...\n`;
-                msg += `🔗 ${a.link}\n\n`;
-            }
-            await sock.sendMessage(chatId, { text: msg.trim() });
-        }
+        // Default — show full menu
+        const menu = `🇺🇬 *Uganda Internet Tricks & Deals*
+━━━━━━━━━━━━━━━━━━━━━
 
-        // Tips section — always shown
-        const airtelTips = [
-            '💡 Dial *185# → My Airtel → Offers to see your personal bundles',
-            '💡 Text "BAL" to 185 to check remaining data balance',
-            '💡 Airtel often gives bonus data between 12am–5am — try browsing then',
-            '💡 Check *174*7# for Airtel Uganda daily free MB promotions',
-            '💡 Follow @AirtelUG on Twitter/X for flash offers'
-        ];
-        const mtnTips = [
-            '💡 Dial *165# → My MTN → Offers for personal promotions',
-            '💡 MTN Pulse (*180#) often has student bundles with bonus data',
-            '💡 Check MTN App daily for limited-time double-data offers',
-            '💡 Text "DATA" to 153 to check your MTN data balance',
-            '💡 Follow @MTNUganda on Twitter/X for flash sale alerts'
-        ];
+📡 *Available Commands:*
 
-        let tipsMsg = '';
-        if (filter === 'airtel') {
-            tipsMsg = '✈️ *Airtel Uganda Quick Tips*\n\n' + airtelTips.join('\n');
-        } else if (filter === 'mtn') {
-            tipsMsg = '🟡 *MTN Uganda Quick Tips*\n\n' + mtnTips.join('\n');
-        } else {
-            tipsMsg = '✈️ *Airtel Uganda Tips*\n' + airtelTips.slice(0, 3).join('\n') +
-                      '\n\n🟡 *MTN Uganda Tips*\n' + mtnTips.slice(0, 3).join('\n');
-        }
-        await sock.sendMessage(chatId, { text: tipsMsg });
+🔐 *.tricks vpn*
+   Working VPN configs for MTN & Airtel
 
-        if (!hasContent) {
-            await sock.sendMessage(chatId, {
-                text: '⚠️ Could not fetch live articles right now — check the tips above and visit techjaja.com or dignited.com directly for more.'
-            });
-        }
+🟡 *.tricks mtn*
+   MTN Uganda data bundles & prices
 
-        await sock.sendMessage(chatId, {
-            text: [
-                '📌 *Usage:*',
-                '• `.ugtrends` — show both Airtel & MTN',
-                '• `.ugtrends airtel` — Airtel only',
-                '• `.ugtrends mtn` — MTN only',
-                '',
-                '🔁 Aliases: `.tricks` `.telecomug` `.airteltrend` `.mtntrend`'
-            ].join('\n')
-        }, { quoted: message });
+🔴 *.tricks airtel*
+   Airtel Uganda data bundles & prices
+
+📞 *.tricks minutes*
+   Cheap call bundles (MTN & Airtel)
+
+💡 *.tricks tips*
+   Data saving tips & free WiFi spots
+
+📰 *.tricks news*
+   Latest Uganda internet tricks (live)`;
+
+        await sock.sendMessage(chatId, { text: menu }, { quoted: message });
     }
 };
