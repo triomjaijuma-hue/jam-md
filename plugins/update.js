@@ -120,11 +120,16 @@ async function ghFetchRaw(filePath) {
 function readCurrentConfigValues() {
     try {
         return {
-            ownerNumber : config?.ownerNumber  ? String(config.ownerNumber)  : null,
-            botOwner    : config?.botOwner      ? String(config.botOwner)     : null,
-            botName     : config?.botName       ? String(config.botName)      : null,
-            sessionId   : config?.sessionId     ? String(config.sessionId)    : null,
-            pairingNumber: config?.pairingNumber ? String(config.pairingNumber): null,
+            ownerNumber  : config?.ownerNumber   ? String(config.ownerNumber)   : null,
+            botOwner     : config?.botOwner       ? String(config.botOwner)      : null,
+            botName      : config?.botName        ? String(config.botName)       : null,
+            sessionId    : config?.sessionId      ? String(config.sessionId)     : null,
+            pairingNumber: config?.pairingNumber  ? String(config.pairingNumber) : null,
+            // AI provider settings — preserved so keys survive every update
+            aiProvider   : config?.aiProvider     ? String(config.aiProvider)    : null,
+            groqApiKey   : config?.groqApiKey     ? String(config.groqApiKey)    : null,
+            geminiApiKey : config?.geminiApiKey   ? String(config.geminiApiKey)  : null,
+            openaiApiKey : config?.openaiApiKey   ? String(config.openaiApiKey)  : null,
         };
     } catch {
         return null;
@@ -157,6 +162,11 @@ function patchConfigAfterUpdate(savedValues) {
         patch('botName',       'BOT_NAME',       savedValues.botName);
         patch('sessionId',     'SESSION_ID',     savedValues.sessionId);
         patch('pairingNumber', 'PAIRING_NUMBER', savedValues.pairingNumber);
+        // Restore AI provider settings so keys survive every update
+        patch('aiProvider',   'AI_PROVIDER',    savedValues.aiProvider);
+        patch('groqApiKey',   'GROQ_API_KEY',   savedValues.groqApiKey);
+        patch('geminiApiKey', 'GEMINI_API_KEY', savedValues.geminiApiKey);
+        patch('openaiApiKey', 'OPENAI_API_KEY', savedValues.openaiApiKey);
 
         fs.writeFileSync(cfgPath, text);
     } catch (e) {
