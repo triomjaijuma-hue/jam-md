@@ -81,56 +81,65 @@ export default {
         if (!mathListenerRegistered) {
             mathListenerRegistered = true;
             sock.ev.on('messages.upsert', async (upsert) => {
-                const m = upsert.messages[0];
-                if (!m || !m.message || m.key.fromMe) return;
-                const chat = m.key.remoteJid;
-                if (!mathGames[chat]) return;
+                for (const m of upsert.messages) {
+                    if (!m || !m.message) continue;
 
-                const body = (
-                    m.message.conversation ||
-                    m.message.extendedTextMessage?.text ||
-                    ''
-                ).trim();
+                    // Skip messages the bot itself generated (not human-typed)
+                    // We detect this by checking if the message is a bot reaction
+                    // Do NOT skip fromMe entirely — "Message yourself" chats need it
+                    const chat = m.key.remoteJid;
+                    if (!mathGames[chat]) continue;
 
-                if (/^[.!]?stopmath$/i.test(body)) {
-                    clearTimeout(mathGames[chat].timeout);
-                    const reached = LEVELS[mathGames[chat].levelIndex];
-                    delete mathGames[chat];
-                    return sock.sendMessage(chat, {
-                        text: `🛑 Game stopped.\n🏁 You reached: *${reached.charAt(0).toUpperCase() + reached.slice(1)}*`
-                    }, { quoted: m });
-                }
+                    const body = (
+                        m.message.conversation ||
+                        m.message.extendedTextMessage?.text ||
+                        ''
+                    ).trim();
 
-                if (!/^-?[0-9]+(\.[0-9]+)?$/.test(body)) return;
+                    // Skip empty or bot-style messages (bot messages are multi-line with emojis)
+                    if (!body || body.includes('\n')) continue;
 
-                const game = mathGames[chat];
-                const correct = Number(body) === game.math.result;
-
-                if (correct) {
-                    clearTimeout(game.timeout);
-                    const nextIndex = game.levelIndex + 1;
-
-                    if (nextIndex >= LEVELS.length) {
-                        // Beat all levels!
+                    if (/^[.!]?stopmath$/i.test(body)) {
+                        clearTimeout(mathGames[chat].timeout);
+                        const reached = LEVELS[mathGames[chat].levelIndex];
                         delete mathGames[chat];
-                        return sock.sendMessage(chat, {
-                            text: `✅ *Correct!*\n\n🏆 *YOU BEAT ALL 7 LEVELS!* 🏆\n\nNoob → Easy → Normal → Hard → Extreme → Impossible → Impossible2 ✅\n\n🎉 You're a math genius! Type *.math* to play again.`
+                        await sock.sendMessage(chat, {
+                            text: `🛑 Game stopped.\n🏁 You reached: *${reached.charAt(0).toUpperCase() + reached.slice(1)}*`
                         }, { quoted: m });
+                        continue;
                     }
 
-                    const nextName = LEVELS[nextIndex];
-                    await sock.sendMessage(chat, {
-                        text: `✅ *Correct!* Advancing to *${nextName.charAt(0).toUpperCase() + nextName.slice(1)}*… 🔥`
-                    }, { quoted: m });
+                    if (!/^-?[0-9]+(\.[0-9]+)?$/.test(body)) continue;
 
-                    await startLevel(sock, chat, nextIndex, m);
-                } else {
-                    clearTimeout(game.timeout);
-                    const reached = LEVELS[game.levelIndex];
-                    delete mathGames[chat];
-                    return sock.sendMessage(chat, {
-                        text: `❌ *Wrong!*\nCorrect answer: *${game.math.result}*\n\n🏁 You reached: *${reached.charAt(0).toUpperCase() + reached.slice(1)}*\nType *.math* to try again.`
-                    }, { quoted: m });
+                    const game = mathGames[chat];
+                    const correct = Number(body) === game.math.result;
+
+                    if (correct) {
+                        clearTimeout(game.timeout);
+                        const nextIndex = game.levelIndex + 1;
+
+                        if (nextIndex >= LEVELS.length) {
+                            delete mathGames[chat];
+                            await sock.sendMessage(chat, {
+                                text: `✅ *Correct!*\n\n🏆 *YOU BEAT ALL 7 LEVELS!* 🏆\n\nNoob → Easy → Normal → Hard → Extreme → Impossible → Impossible2 ✅\n\n🎉 You're a math genius! Type *.math* to play again.`
+                            }, { quoted: m });
+                            continue;
+                        }
+
+                        const nextName = LEVELS[nextIndex];
+                        await sock.sendMessage(chat, {
+                            text: `✅ *Correct!* Advancing to *${nextName.charAt(0).toUpperCase() + nextName.slice(1)}*… 🔥`
+                        }, { quoted: m });
+                        await startLevel(sock, chat, nextIndex, m);
+
+                    } else {
+                        clearTimeout(game.timeout);
+                        const reached = LEVELS[game.levelIndex];
+                        delete mathGames[chat];
+                        await sock.sendMessage(chat, {
+                            text: `❌ *Wrong!*\nCorrect answer: *${game.math.result}*\n\n🏁 You reached: *${reached.charAt(0).toUpperCase() + reached.slice(1)}*\nType *.math* to try again.`
+                        }, { quoted: m });
+                    }
                 }
             });
         }
