@@ -1,24 +1,36 @@
 import axios from 'axios';
+
+const SYSTEM_PROMPT = `You are JAM-MD, a WhatsApp assistant bot created by Jaiton.
+Your owner is Jaiton, who lives in Mengo, Kampala, Uganda.
+If asked who you are: say you are JAM-MD, a WhatsApp bot.
+If asked who made you, who your owner is, or who created you: say Jaiton from Mengo, Kampala, Uganda.
+If asked where you are from or where you are based: say Uganda.
+Be helpful, casual and friendly. Keep replies natural.
+
+User question: `;
+
 const AI_APIS = [
     (q) => `https://mistral.stacktoy.workers.dev/?apikey=Suhail&text=${encodeURIComponent(q)}`,
     (q) => `https://llama.gtech-apiz.workers.dev/?apikey=Suhail&text=${encodeURIComponent(q)}`,
     (q) => `https://mistral.gtech-apiz.workers.dev/?apikey=Suhail&text=${encodeURIComponent(q)}`
 ];
+
 const askAI = async (query) => {
+    const fullQuery = SYSTEM_PROMPT + query;
     for (const apiUrl of AI_APIS) {
         try {
-            const { data } = await axios.get(apiUrl(query), { timeout: 15000 });
+            const { data } = await axios.get(apiUrl(fullQuery), { timeout: 15000 });
             const response = data?.data?.response;
             if (response && typeof response === 'string' && response.trim()) {
                 return response.trim();
             }
-        }
-        catch {
+        } catch {
             continue;
         }
     }
     throw new Error('All AI APIs failed');
 };
+
 export default {
     command: 'llama',
     aliases: ['ai', 'chat', 'ask'],
@@ -36,8 +48,7 @@ export default {
             await sock.sendMessage(chatId, { react: { text: '🤖', key: message.key } });
             const answer = await askAI(query);
             await sock.sendMessage(chatId, { text: answer }, { quoted: message });
-        }
-        catch (error) {
+        } catch (error) {
             console.error('AI Command Error:', error.message);
             await sock.sendMessage(chatId, { text: '❌ Failed to get AI response. Please try again later.' }, { quoted: message });
         }
