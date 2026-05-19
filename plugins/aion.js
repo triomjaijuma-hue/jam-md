@@ -245,6 +245,14 @@ Your reply:`.trim();
           }
           chats[chatId] = true;
           await setAutoAiChats(chats);
+          // Remove from global DM AI exclusion if chat was excluded via .aioff
+          try {
+              const dmState = await getDmAiState();
+              if (dmState.enabled && dmState.excluded.includes(chatId)) {
+                  dmState.excluded = dmState.excluded.filter(id => id !== chatId);
+                  await setDmAiState(dmState);
+              }
+          } catch {}
           const chatType = chatId.endsWith('@g.us') ? 'group' : 'DM';
           return sock.sendMessage(chatId, {
               text: `✅ *AI Auto-Reply: ON*\n\n` +
