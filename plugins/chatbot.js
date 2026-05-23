@@ -133,7 +133,10 @@ export async function handleChatbotResponse(sock, chatId, message, userMessage, 
         if (messages.length > 20) messages.shift();
         chatMemory.messages.set(senderId, messages);
 
-        await showTyping(sock, chatId);
+        // Start timer + show composing right away so WhatsApp shows typing dots while AI thinks
+        const _replyStart = Date.now();
+        try { await sock.presenceSubscribe(chatId); await sock.sendPresenceUpdate('composing', chatId); } catch {}
+
         const response = await getAIResponse(cleanedMessage, {
             messages: chatMemory.messages.get(senderId),
             userInfo: chatMemory.userInfo.get(senderId)
@@ -142,6 +145,12 @@ export async function handleChatbotResponse(sock, chatId, message, userMessage, 
             await sock.sendMessage(chatId, { text: "Hmm, I'm having trouble right now. Try again shortly. 🤔" }, { quoted: message });
             return;
         }
+        // Human-like pacing: how long would a real person need to read + type this reply?
+        // read/think: ~1.5s fixed + type: ~35ms per char (min 2s, max 10s)
+        const _elapsed = Date.now() - _replyStart;
+        const _typingMs = Math.max(2000, Math.min(10000, response.length * 35));
+        const _remaining = Math.max(0, (1500 + _typingMs) - _elapsed);
+        if (_remaining > 0) await new Promise(r => setTimeout(r, _remaining));
         await sock.sendMessage(chatId, { text: response }, { quoted: message });
     } catch (error) {
         if (error.message?.includes('No sessions')) return;
