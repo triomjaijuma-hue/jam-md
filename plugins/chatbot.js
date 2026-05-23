@@ -41,7 +41,7 @@ async function saveUserGroupData(data) {
     } catch {}
 }
 
-function getRandomDelay() { return Math.floor(Math.random() * 3000) + 2000; }
+function getRandomDelay() { return Math.floor(Math.random() * 500) + 300; }
 
 async function showTyping(sock, chatId) {
     try {
@@ -142,7 +142,6 @@ export async function handleChatbotResponse(sock, chatId, message, userMessage, 
             await sock.sendMessage(chatId, { text: "Hmm, I'm having trouble right now. Try again shortly. 🤔" }, { quoted: message });
             return;
         }
-        await new Promise(resolve => setTimeout(resolve, getRandomDelay()));
         await sock.sendMessage(chatId, { text: response }, { quoted: message });
     } catch (error) {
         if (error.message?.includes('No sessions')) return;
