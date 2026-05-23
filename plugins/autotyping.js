@@ -61,12 +61,12 @@ export async function handleAutotypingForMessage(sock, chatId, userMessage) {
         try {
             await sock.presenceSubscribe(chatId);
             await sock.sendPresenceUpdate('available', chatId);
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 200));
             await sock.sendPresenceUpdate('composing', chatId);
-            const typingDelay = Math.max(3000, Math.min(8000, userMessage.length * 150));
+            const typingDelay = Math.max(400, Math.min(1500, userMessage.length * 20));
             await new Promise(resolve => setTimeout(resolve, typingDelay));
             await sock.sendPresenceUpdate('composing', chatId);
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            await new Promise(resolve => setTimeout(resolve, 300));
             await sock.sendPresenceUpdate('paused', chatId);
             return true;
         }
@@ -87,12 +87,12 @@ async function handleAutotypingForCommand(sock, chatId) {
         try {
             await sock.presenceSubscribe(chatId);
             await sock.sendPresenceUpdate('available', chatId);
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 200));
             await sock.sendPresenceUpdate('composing', chatId);
-            const commandTypingDelay = 3000;
+            const commandTypingDelay = 800;
             await new Promise(resolve => setTimeout(resolve, commandTypingDelay));
             await sock.sendPresenceUpdate('composing', chatId);
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            await new Promise(resolve => setTimeout(resolve, 300));
             await sock.sendPresenceUpdate('paused', chatId);
             return true;
         }
@@ -113,7 +113,7 @@ export async function showTypingAfterCommand(sock, chatId) {
         try {
             await sock.presenceSubscribe(chatId);
             await sock.sendPresenceUpdate('composing', chatId);
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, 400));
             await sock.sendPresenceUpdate('paused', chatId);
             return true;
         }
