@@ -210,6 +210,11 @@ Your reply:`.trim();
           history.push(`Them: ${userMessage}`);
           if (history.length > 20) history.splice(0, history.length - 20);
 
+          // 12% chance: bot "read" it but is busy — waits 60-180s before typing (human behaviour)
+          if (Math.random() < 0.12) {
+              const _busyMs = Math.floor(Math.random() * 120000) + 60000;
+              await new Promise(r => setTimeout(r, _busyMs));
+          }
           const _aionStart = Date.now();
           try { await sock.presenceSubscribe(chatId); await sock.sendPresenceUpdate('composing', chatId); } catch { }
 
