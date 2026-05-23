@@ -192,7 +192,8 @@ Your reply:`.trim();
           const instant = getInstantReply(userMessage.trim());
           if (instant) {
               try { await sock.presenceSubscribe(chatId); await sock.sendPresenceUpdate('composing', chatId); } catch { }
-              await new Promise(r => setTimeout(r, 800 + Math.random() * 1200));
+              const _instTypingMs = Math.max(2000, Math.min(8000, instant.length * 35));
+              await new Promise(r => setTimeout(r, _instTypingMs));
               await sock.sendMessage(chatId, { text: instant }, { quoted: message });
               const key = `${chatId}:${senderId}`;
               if (!chatHistory.has(key)) chatHistory.set(key, []);
@@ -209,14 +210,16 @@ Your reply:`.trim();
           history.push(`Them: ${userMessage}`);
           if (history.length > 20) history.splice(0, history.length - 20);
 
-          try {
-              await sock.presenceSubscribe(chatId);
-              await sock.sendPresenceUpdate('composing', chatId);
-              await new Promise(r => setTimeout(r, 1500 + Math.random() * 1500));
-          } catch { }
+          const _aionStart = Date.now();
+          try { await sock.presenceSubscribe(chatId); await sock.sendPresenceUpdate('composing', chatId); } catch { }
 
           const reply = await getAIReply(userMessage, history);
           if (!reply) return false;
+
+          const _aionElapsed = Date.now() - _aionStart;
+          const _aionTypingMs = Math.max(2000, Math.min(10000, reply.length * 35));
+          const _aionRemaining = Math.max(0, (1500 + _aionTypingMs) - _aionElapsed);
+          if (_aionRemaining > 0) await new Promise(r => setTimeout(r, _aionRemaining));
 
           history.push(`Me: ${reply}`);
           chatHistory.set(key, history);
