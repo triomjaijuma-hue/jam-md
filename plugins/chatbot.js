@@ -133,6 +133,11 @@ export async function handleChatbotResponse(sock, chatId, message, userMessage, 
         if (messages.length > 20) messages.shift();
         chatMemory.messages.set(senderId, messages);
 
+        // 12% chance: bot "read" it but is busy — waits 60-180s before typing (human behaviour)
+        if (Math.random() < 0.12) {
+            const _busyMs = Math.floor(Math.random() * 120000) + 60000;
+            await new Promise(r => setTimeout(r, _busyMs));
+        }
         // Start timer + show composing right away so WhatsApp shows typing dots while AI thinks
         const _replyStart = Date.now();
         try { await sock.presenceSubscribe(chatId); await sock.sendPresenceUpdate('composing', chatId); } catch {}
