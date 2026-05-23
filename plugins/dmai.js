@@ -175,14 +175,18 @@ export async function handleDmAiAll(sock, chatId, message, userMessage, senderId
         history.push(`Them: ${userMessage}`);
         if (history.length > 30) history.splice(0, history.length - 30);
 
-        try {
-            await sock.presenceSubscribe(chatId);
-            await sock.sendPresenceUpdate('composing', chatId);
-            await new Promise(r => setTimeout(r, 500 + Math.random() * 500));
-        } catch { }
+        // Start timer + show composing immediately while AI thinks
+        const _dmStart = Date.now();
+        try { await sock.presenceSubscribe(chatId); await sock.sendPresenceUpdate('composing', chatId); } catch {}
 
         const reply = await getAIReply(userMessage, history);
         if (!reply) return false;
+
+        // Human-like pacing based on REPLY length — longer replies need more time to feel real
+        const _dmElapsed = Date.now() - _dmStart;
+        const _dmTypingMs = Math.max(2000, Math.min(10000, reply.length * 35));
+        const _dmRemaining = Math.max(0, (1500 + _dmTypingMs) - _dmElapsed);
+        if (_dmRemaining > 0) await new Promise(r => setTimeout(r, _dmRemaining));
 
         history.push(`Me: ${reply}`);
         dmHistory.set(senderId, history);
