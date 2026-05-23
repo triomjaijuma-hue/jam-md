@@ -160,7 +160,7 @@ export async function handleDmAiAll(sock, chatId, message, userMessage, senderId
         const instant = getInstantReply(userMessage.trim());
         if (instant) {
             try { await sock.presenceSubscribe(chatId); await sock.sendPresenceUpdate('composing', chatId); } catch { }
-            await new Promise(r => setTimeout(r, 800 + Math.random() * 1200));
+            await new Promise(r => setTimeout(r, 300 + Math.random() * 400));
             await sock.sendMessage(chatId, { text: instant }, { quoted: message });
             if (!dmHistory.has(senderId)) dmHistory.set(senderId, []);
             const h = dmHistory.get(senderId);
@@ -178,7 +178,7 @@ export async function handleDmAiAll(sock, chatId, message, userMessage, senderId
         try {
             await sock.presenceSubscribe(chatId);
             await sock.sendPresenceUpdate('composing', chatId);
-            await new Promise(r => setTimeout(r, 1500 + Math.random() * 2000));
+            await new Promise(r => setTimeout(r, 500 + Math.random() * 500));
         } catch { }
 
         const reply = await getAIReply(userMessage, history);
