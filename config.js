@@ -34,7 +34,6 @@ const config = {
     aiProvider: process.env.AI_PROVIDER || 'mistral',
     groqApiKey: process.env.GROQ_API_KEY || '',
     geminiApiKey: process.env.GEMINI_API_KEY || '',
-    openaiApiKey: process.env.OPENAI_API_KEY || '',
     // Warn system
     warnCount: 3,
     // External APIs
