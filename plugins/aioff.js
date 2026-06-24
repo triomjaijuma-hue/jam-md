@@ -18,7 +18,11 @@ async function getAutoAiChats() {
 async function setAutoAiChats(data) {
     try {
         if (HAS_DB) { await store.saveSetting('global', 'autoAi', data); }
-        else { fs.writeFileSync(AUTO_AI_FILE, JSON.stringify(data, null, 2)); }
+        else {
+            const dir = path.dirname(AUTO_AI_FILE);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(AUTO_AI_FILE, JSON.stringify(data, null, 2));
+        }
     } catch (e) { console.error('autoAi save error:', e.message); }
 }
 
