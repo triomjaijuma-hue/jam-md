@@ -184,7 +184,10 @@ export async function handleDmAiAll(sock, chatId, message, userMessage, senderId
         try { await sock.presenceSubscribe(chatId); await sock.sendPresenceUpdate('composing', chatId); } catch {}
 
         const reply = await getAIReply(userMessage, history);
-        if (!reply) return false;
+        if (!reply) {
+            await sock.sendMessage(chatId, { text: '⚠️ AI couldn\'t generate a reply. Check your key with *.aicheck* or switch: *.aiswitch groq*' }, { quoted: message });
+            return true;
+        }
 
         // Human-like pacing based on REPLY length — longer replies need more time to feel real
         const _dmElapsed = Date.now() - _dmStart;
