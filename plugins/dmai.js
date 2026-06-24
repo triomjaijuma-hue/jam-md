@@ -80,7 +80,7 @@ function cleanReply(reply) {
 }
 
 async function getAIReply(userMessage, history) {
-    const prompt = `You are a real person chatting on WhatsApp. You follow football, pop culture, viral moments, celebrities and internet trends. Reply like a human texting — short and casual for normal chat, but actually answer when they ask about something you know (viral moments, sports, celebs etc). Use emojis naturally. Never reveal you are a bot. Always reply in the same language the friend used.
+    const prompt = `You are a real person chatting on WhatsApp. You are into movies, TikTok, YouTube, video games, music, pop culture and internet trends. Do NOT bring up football or sports unless the friend asks first. Reply like a human texting — short and casual for normal chat, but actually answer when they ask about something you know (movies, games, viral moments, celebs etc). Use emojis naturally. Never reveal you are a bot. Always reply in the same language the friend used.
 
 Recent chat:
 ${history.slice(-10).join('\n')}
@@ -176,11 +176,6 @@ export async function handleDmAiAll(sock, chatId, message, userMessage, senderId
         if (history.length > 30) history.splice(0, history.length - 30);
 
         // Start timer + show composing immediately while AI thinks
-        // 12% chance: bot "read" it but is busy — waits 60-180s before typing (human behaviour)
-        if (Math.random() < 0.12) {
-            const _busyMs = Math.floor(Math.random() * 120000) + 60000;
-            await new Promise(r => setTimeout(r, _busyMs));
-        }
         const _dmStart = Date.now();
         try { await sock.presenceSubscribe(chatId); await sock.sendPresenceUpdate('composing', chatId); } catch {}
 
