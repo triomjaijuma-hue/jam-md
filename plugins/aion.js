@@ -6,8 +6,30 @@ import fs from 'fs';
   import { detectImageRequest, generateImage } from '../lib/imageGen.js';
 
   const AUTO_AI_FILE = dataFile('autoAi.json');
+  const DM_AI_FILE = dataFile('dmAiAll.json');
   const HAS_DB = !!(process.env.MONGO_URL || process.env.POSTGRES_URL || process.env.MYSQL_URL || process.env.DB_URL);
   const chatHistory = new Map();
+
+  async function getDmAiState() {
+      try {
+          if (HAS_DB) {
+              const data = await store.getSetting('global', 'dmAiAll');
+              return { enabled: false, excluded: [], ...(data || {}) };
+          }
+          if (!fs.existsSync(DM_AI_FILE)) return { enabled: false, excluded: [] };
+          const data = JSON.parse(fs.readFileSync(DM_AI_FILE, 'utf8'));
+          return { enabled: data.enabled || false, excluded: data.excluded || [] };
+      } catch { return { enabled: false, excluded: [] }; }
+  }
+
+  async function setDmAiState(data) {
+      try {
+          if (HAS_DB) { await store.saveSetting('global', 'dmAiAll', data); return; }
+          const dir = path.dirname(DM_AI_FILE);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(DM_AI_FILE, JSON.stringify(data, null, 2));
+      } catch (e) { console.error('dmAi save error:', e.message); }
+  }
 
   const AI_APIS = [
       { name: 'ZellAPI', url: t => `https://zellapi.autos/ai/chatbot?text=${encodeURIComponent(t)}`, parse: d => d?.result },
