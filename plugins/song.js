@@ -1,27 +1,100 @@
 import axios from 'axios';
 import yts from 'yt-search';
 
-const DL_API = 'https://api.qasimdev.dpdns.org/api/loaderto/download';
-const API_KEY = 'xbps-install-Syu';
-const wait = (ms) => new Promise(r => setTimeout(r, ms));
-
-const downloadWithRetry = async (url, retries = 3) => {
-    const cleanUrl = url.replace('music.youtube.com', 'www.youtube.com');
-    for (let i = 0; i < retries; i++) {
-        try {
-            const { data } = await axios.get(DL_API, {
-                params: { apiKey: API_KEY, format: 'mp3', url: cleanUrl },
-                timeout: 90000
+const DL_APIS = [
+    {
+        name: 'QasimDev',
+        async fetch(url) {
+            const { data } = await axios.get('https://api.qasimdev.dpdns.org/api/loaderto/download', {
+                params: { apiKey: 'xbps-install-Syu', format: 'mp3', url },
+                timeout: 40000
             });
-            if (data?.data?.downloadUrl) return data.data;
-            throw new Error('No download URL');
-        } catch (err) {
-            if (i === retries - 1) throw err;
-            await wait(5000);
+            const d = data?.data;
+            if (!d?.downloadUrl) throw new Error('No download URL');
+            return { downloadUrl: d.downloadUrl, title: d.title, thumbnail: d.thumbnail };
+        }
+    },
+    {
+        name: 'GiftedTech',
+        async fetch(url) {
+            const { data } = await axios.get('https://api.giftedtech.web.id/api/download/ytmp3', {
+                params: { apikey: 'gifted', url },
+                timeout: 40000
+            });
+            if (!data?.success) throw new Error(data?.error || 'GiftedTech failed');
+            const d = data?.result;
+            const dlUrl = d?.downloadUrl || d?.download_url || d?.url;
+            if (!dlUrl) throw new Error('No download URL');
+            return { downloadUrl: dlUrl, title: d?.title, thumbnail: d?.thumbnail };
+        }
+    },
+    {
+        name: 'SiputZX',
+        async fetch(url) {
+            const { data } = await axios.get('https://api.siputzx.my.id/api/d/ytmp3', {
+                params: { url },
+                timeout: 40000
+            });
+            if (!data?.status) throw new Error('SiputZX failed');
+            const dlUrl = data?.data?.url || data?.data?.downloadUrl;
+            if (!dlUrl) throw new Error('No download URL');
+            return { downloadUrl: dlUrl, title: data?.data?.title, thumbnail: data?.data?.thumbnail };
+        }
+    },
+    {
+        name: 'RyzenDesu',
+        async fetch(url) {
+            const { data } = await axios.get('https://api.ryzendesu.vip/api/downloader/ytmp3', {
+                params: { url },
+                timeout: 40000
+            });
+            const dlUrl = data?.url || data?.download || data?.data?.url;
+            if (!dlUrl) throw new Error('No download URL');
+            return { downloadUrl: dlUrl, title: data?.title || data?.data?.title, thumbnail: data?.thumbnail };
+        }
+    },
+    {
+        name: 'DavidCyril',
+        async fetch(url) {
+            const { data } = await axios.get('https://api.davidcyriltech.my.id/download/ytmp3', {
+                params: { url },
+                timeout: 40000
+            });
+            if (!data?.success) throw new Error('DavidCyril failed');
+            const dlUrl = data?.result?.download_url || data?.download_url;
+            if (!dlUrl) throw new Error('No download URL');
+            return { downloadUrl: dlUrl, title: data?.result?.title, thumbnail: data?.result?.thumbnail };
+        }
+    },
+    {
+        name: 'Cenarius',
+        async fetch(url) {
+            const { data } = await axios.get('https://api.cenarius.web.id/yt/mp3', {
+                params: { url },
+                timeout: 40000
+            });
+            const dlUrl = data?.url || data?.download || data?.result?.url;
+            if (!dlUrl) throw new Error('No download URL');
+            return { downloadUrl: dlUrl, title: data?.title || data?.result?.title, thumbnail: data?.thumbnail };
         }
     }
-    throw new Error('All download attempts failed');
-};
+];
+
+async function downloadMp3(videoUrl) {
+    const cleanUrl = videoUrl.replace('music.youtube.com', 'www.youtube.com');
+    const errors = [];
+    for (const api of DL_APIS) {
+        try {
+            const result = await api.fetch(cleanUrl);
+            console.log(`[song] Downloaded via ${api.name}`);
+            return result;
+        } catch (err) {
+            console.log(`[song] ${api.name} failed: ${err.message}`);
+            errors.push(`${api.name}: ${err.message}`);
+        }
+    }
+    throw new Error(`All download APIs failed.\n${errors.join('\n')}`);
+}
 
 export default {
     command: 'song',
@@ -36,7 +109,7 @@ export default {
             return sock.sendMessage(chatId, { text: '🎵 *Song Downloader*\n\nUsage: .song <song name | YouTube link>' }, { quoted: message });
         try {
             let video;
-            if (query.includes('youtube.com') || query.includes('youtu.be')) {
+            if (query.includes('youtube.com') || query.includes('youtu.be') || query.includes('music.youtube.com')) {
                 const videoId = query.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
                 video = {
                     url: query,
@@ -59,7 +132,7 @@ export default {
             } else {
                 await sock.sendMessage(chatId, { text: '⏳ *Downloading...*' }, { quoted: message });
             }
-            const songData = await downloadWithRetry(video.url);
+            const songData = await downloadMp3(video.url);
             let thumbnailBuffer;
             try {
                 const thumb = songData.thumbnail || video.thumbnail;
@@ -84,9 +157,11 @@ export default {
             }, { quoted: message });
         } catch (err) {
             console.error('Song error:', err.message);
-            const reason = err.response?.status === 408 || err.message?.includes('timeout')
-                ? 'Download timed out. Try again.'
-                : err.message;
+            const reason = err.response?.status === 429
+                ? 'All APIs are rate limited. Wait a minute and try again.'
+                : err.message?.includes('All download APIs failed')
+                    ? 'All download sources are currently down. Try again later.'
+                    : err.message;
             await sock.sendMessage(chatId, { text: `❌ *Failed:* ${reason}` }, { quoted: message });
         }
     }
