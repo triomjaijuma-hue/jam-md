@@ -175,7 +175,8 @@ export async function handleDmAiAll(sock, chatId, message, userMessage, senderId
         history.push(`Them: ${userMessage}`);
         if (history.length > 30) history.splice(0, history.length - 30);
 
-        // Start timer + show composing immediately while AI thinks
+        // Wait 3 seconds before showing typing indicator
+        await new Promise(r => setTimeout(r, 3000));
         const _dmStart = Date.now();
         try { await sock.presenceSubscribe(chatId); await sock.sendPresenceUpdate('composing', chatId); } catch {}
 
