@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { askAI, getCurrentProvider, getProviderInfo } from '../lib/aiProvider.js';
 
 const SYSTEM_PROMPT = `You are JAM-MD, a WhatsApp assistant bot created by Jaiton.
 Your owner is Jaiton, who lives in Mengo, Kampala, Uganda.
@@ -6,51 +6,44 @@ If asked who you are: say you are JAM-MD, a WhatsApp bot.
 If asked who made you, who your owner is, or who created you: say Jaiton from Mengo, Kampala, Uganda.
 If asked where you are from or where you are based: say Uganda.
 Be helpful, casual and friendly. Keep replies natural.
+Always reply in the same language the user is writing in.
 
 User question: `;
 
-const AI_APIS = [
-    (q) => `https://mistral.stacktoy.workers.dev/?apikey=Suhail&text=${encodeURIComponent(q)}`,
-    (q) => `https://llama.gtech-apiz.workers.dev/?apikey=Suhail&text=${encodeURIComponent(q)}`,
-    (q) => `https://mistral.gtech-apiz.workers.dev/?apikey=Suhail&text=${encodeURIComponent(q)}`
-];
-
-const askAI = async (query) => {
-    const fullQuery = SYSTEM_PROMPT + query;
-    for (const apiUrl of AI_APIS) {
-        try {
-            const { data } = await axios.get(apiUrl(fullQuery), { timeout: 15000 });
-            const response = data?.data?.response;
-            if (response && typeof response === 'string' && response.trim()) {
-                return response.trim();
-            }
-        } catch {
-            continue;
-        }
-    }
-    throw new Error('All AI APIs failed');
-};
-
 export default {
     command: 'llama',
-    aliases: ['ai', 'chat', 'ask'],
+    aliases: [],
     category: 'ai',
-    description: 'Ask a question to AI',
+    description: 'Ask a question to AI via .llama (uses your active provider)',
     usage: '.llama <question>',
     async handler(sock, message, args, context) {
         const { chatId, config } = context;
-        const prefix = config.prefix;
+        const prefix = config?.prefix || '.';
         const query = args.join(' ').trim();
         if (!query) {
-            return sock.sendMessage(chatId, { text: `🤖 *AI Assistant*\n\nUsage: \`${prefix}llama <your question>\`\nExample: \`${prefix}llama explain quantum physics\`` }, { quoted: message });
+            return sock.sendMessage(chatId, {
+                text: `🤖 *AI Assistant*\n\nUsage: \`${prefix}llama <your question>\`\nExample: \`${prefix}llama explain quantum physics\``
+            }, { quoted: message });
         }
+
+        const providerName = await getCurrentProvider();
+        const info = await getProviderInfo(providerName);
+
+        if (info?.needsKey && !info?.hasKey) {
+            return sock.sendMessage(chatId, {
+                text: `⚠️ *${info.name}* has no API key set.\n\nSet it: \`.aikey ${providerName} YOUR_KEY\`\nOr switch to free: \`.aiswitch mistral\``
+            }, { quoted: message });
+        }
+
         try {
             await sock.sendMessage(chatId, { react: { text: '🤖', key: message.key } });
-            const answer = await askAI(query);
-            await sock.sendMessage(chatId, { text: answer }, { quoted: message });
+            const answer = await askAI(SYSTEM_PROMPT + query);
+            await sock.sendMessage(chatId, { text: answer.trim() }, { quoted: message });
         } catch (error) {
-            console.error('AI Command Error:', error.message);
-            await sock.sendMessage(chatId, { text: '❌ Failed to get AI response. Please try again later.' }, { quoted: message });
+            console.error('[ai-llama] error:', error.message);
+            await sock.sendMessage(chatId, {
+                text: `❌ AI failed: ${error.message}\n\nCheck provider: \`.aiswitch\` | Set key: \`.aikey\``
+            }, { quoted: message });
         }
     }
 };
