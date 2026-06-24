@@ -41,6 +41,40 @@ async function saveUserGroupData(data) {
     } catch {}
 }
 
+// ── Instant reply patterns — bypass AI for greetings ─────────────────────────
+const GREETING_PATTERNS = [
+    /^(hey+|hi+|hello+|helo+|holla+|hola+|sup|wassup|yo+|oya|howdy)[s!?.]*$/i,
+    /^(good\s?(morning|afternoon|evening|night|day))[s!?.]*$/i,
+    /^(morning|afternoon|evening|night)[s!?.]*$/i,
+    /^(hie|hye|hai|heya|heyy+|hiii+|hihi|heyyy+)[s!?.]*$/i,
+    /^(ola|salut|bonjour|ciao|namaste|salam)[s!?.]*$/i,
+];
+const GREETING_REPLIES = [
+    "Hey! How are you doing? 😊", "Hey! How is everything going?", "Heyy! What's up? 😄",
+    "Hey, how's it going?", "Heyyy! How have you been?", "Hey! Good to hear from you 😊 How are you?",
+    "Hey! What's good?", "Yo! How is life treating you?", "Hey! Hope you are doing well 😊",
+];
+const THANKS_PATTERNS = [/^(thank(s| you)+|thx|ty|thnks|thnx|cheers|appreciate it|gracias|merci)[s!?.]*$/i];
+const THANKS_REPLIES = ["No problem at all 😊", "Anytime! 😄", "Of course! 🙌", "Happy to help!", "Sure thing! 😄"];
+const BYE_PATTERNS = [/^(bye+|goodbye|good\s?bye|cya|see ya|later|take care|ttyl|gotta go|gtg|peace)[s!?.]*$/i];
+const BYE_REPLIES = ["Take care! 👋", "Bye! Talk later 😊", "See you! 👋", "Later! 😄", "Bye bye! 👋 Have a good one!"];
+const HOW_ARE_YOU_PATTERNS = [/^(how are you|how r u|how are u|hru|how do you do|how is it going|how is everything|you okay|u ok|you good|u good|are you okay|are you good)[s!?.]*$/i];
+const HOW_ARE_YOU_REPLIES = [
+    "I'm good! Thanks for asking 😊 What about you?", "Doing great! How about yourself? 😄",
+    "All good on my end 😊 How are you doing?", "Pretty good! You? 😄",
+];
+
+function pickRandom(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+function getInstantReply(text) {
+    const t = text.trim();
+    if (GREETING_PATTERNS.some(r => r.test(t))) return pickRandom(GREETING_REPLIES);
+    if (HOW_ARE_YOU_PATTERNS.some(r => r.test(t))) return pickRandom(HOW_ARE_YOU_REPLIES);
+    if (THANKS_PATTERNS.some(r => r.test(t))) return pickRandom(THANKS_REPLIES);
+    if (BYE_PATTERNS.some(r => r.test(t))) return pickRandom(BYE_REPLIES);
+    return null;
+}
+
 function getRandomDelay() { return Math.floor(Math.random() * 500) + 300; }
 
 async function showTyping(sock, chatId) {
@@ -118,6 +152,15 @@ export async function handleChatbotResponse(sock, chatId, message, userMessage, 
             } catch {
                 await sock.sendMessage(chatId, { text: `❌ Couldn't generate that image. Try describing it differently.` }, { quoted: message });
             }
+            return;
+        }
+
+        // ── Instant reply for greetings — skip AI entirely ──────────────────
+        const instant = getInstantReply(cleanedMessage);
+        if (instant) {
+            await showTyping(sock, chatId);
+            await new Promise(r => setTimeout(r, 400 + Math.random() * 600));
+            await sock.sendMessage(chatId, { text: instant }, { quoted: message });
             return;
         }
 
