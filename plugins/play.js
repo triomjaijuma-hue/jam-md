@@ -1,8 +1,8 @@
 import yts from 'yt-search';
 import axios from 'axios';
+import { ytdlpAvailable, downloadAudio, cleanupTmp } from '../lib/ytdlp.js';
 
-const wait = (ms) => new Promise(r => setTimeout(r, ms));
-
+// Third-party API fallbacks — tried in order if yt-dlp is unavailable
 const DL_APIS = [
     {
         name: 'QasimDev',
@@ -82,22 +82,6 @@ const DL_APIS = [
     }
 ];
 
-async function downloadMp3(videoUrl) {
-    const cleanUrl = videoUrl.replace('music.youtube.com', 'www.youtube.com');
-    const errors = [];
-    for (const api of DL_APIS) {
-        try {
-            const result = await api.fetch(cleanUrl);
-            console.log(`[play] Downloaded via ${api.name}`);
-            return result;
-        } catch (err) {
-            console.log(`[play] ${api.name} failed: ${err.message}`);
-            errors.push(`${api.name}: ${err.message}`);
-        }
-    }
-    throw new Error(`All download APIs failed.\n${errors.join('\n')}`);
-}
-
 export default {
     command: 'play',
     aliases: ['plays', 'music'],
@@ -109,46 +93,97 @@ export default {
         const query = args.join(' ').trim();
         if (!query)
             return sock.sendMessage(chatId, { text: '*Which song do you want to play?*\nUsage: .play <song name>' }, { quoted: message });
+
         try {
             await sock.sendMessage(chatId, { text: '🔍 *Searching...*' }, { quoted: message });
             const { videos } = await yts(query);
             if (!videos?.length)
                 return sock.sendMessage(chatId, { text: '❌ *No results found!*' }, { quoted: message });
+
             const video = videos[0];
+            const cleanUrl = video.url.replace('music.youtube.com', 'www.youtube.com');
+
             await sock.sendMessage(chatId, {
                 text: `✅ *Found:* ${video.title}\n⏱️ ${video.timestamp}\n👤 ${video.author.name}\n\n⏳ *Downloading...*`
             }, { quoted: message });
-            const songData = await downloadMp3(video.url);
-            let thumbnailBuffer;
-            try {
-                const thumbUrl = songData.thumbnail || video.thumbnail;
-                if (thumbUrl) {
-                    const img = await axios.get(thumbUrl, { responseType: 'arraybuffer', timeout: 15000 });
-                    thumbnailBuffer = Buffer.from(img.data);
+
+            // --- Try yt-dlp first (most reliable) ---
+            const hasYtdlp = await ytdlpAvailable();
+            if (hasYtdlp) {
+                let tmpDir;
+                try {
+                    const { buffer, tmpDir: td } = await downloadAudio(cleanUrl);
+                    tmpDir = td;
+                    let thumbnailBuffer;
+                    try {
+                        const img = await axios.get(video.thumbnail, { responseType: 'arraybuffer', timeout: 15000 });
+                        thumbnailBuffer = Buffer.from(img.data);
+                    } catch { /* no thumbnail */ }
+                    await sock.sendMessage(chatId, {
+                        audio: buffer,
+                        mimetype: 'audio/mpeg',
+                        fileName: `${video.title}.mp3`,
+                        contextInfo: {
+                            externalAdReply: {
+                                title: video.title,
+                                body: `${video.author?.name || ''} • ${video.timestamp}`,
+                                thumbnail: thumbnailBuffer,
+                                mediaType: 2,
+                                sourceUrl: video.url
+                            }
+                        }
+                    }, { quoted: message });
+                    console.log('[play] Downloaded via yt-dlp');
+                    return;
+                } catch (ytErr) {
+                    console.log('[play] yt-dlp failed:', ytErr.message, '— trying APIs');
+                } finally {
+                    await cleanupTmp(tmpDir);
                 }
-            } catch { /* no thumbnail */ }
+            }
+
+            // --- Fallback: try each API in order ---
+            const errors = [];
+            for (const api of DL_APIS) {
+                try {
+                    const songData = await api.fetch(cleanUrl);
+                    let thumbnailBuffer;
+                    try {
+                        const thumbUrl = songData.thumbnail || video.thumbnail;
+                        if (thumbUrl) {
+                            const img = await axios.get(thumbUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                            thumbnailBuffer = Buffer.from(img.data);
+                        }
+                    } catch { /* no thumbnail */ }
+                    await sock.sendMessage(chatId, {
+                        audio: { url: songData.downloadUrl },
+                        mimetype: 'audio/mpeg',
+                        fileName: `${songData.title || video.title || 'song'}.mp3`,
+                        contextInfo: {
+                            externalAdReply: {
+                                title: songData.title || video.title,
+                                body: `${video.author?.name || ''} • ${video.timestamp}`,
+                                thumbnail: thumbnailBuffer,
+                                mediaType: 2,
+                                sourceUrl: video.url
+                            }
+                        }
+                    }, { quoted: message });
+                    console.log(`[play] Downloaded via ${api.name}`);
+                    return;
+                } catch (err) {
+                    console.log(`[play] ${api.name} failed: ${err.message}`);
+                    errors.push(`${api.name}: ${err.message}`);
+                }
+            }
+
             await sock.sendMessage(chatId, {
-                audio: { url: songData.downloadUrl },
-                mimetype: 'audio/mpeg',
-                fileName: `${songData.title || video.title || 'song'}.mp3`,
-                contextInfo: {
-                    externalAdReply: {
-                        title: songData.title || video.title,
-                        body: `${video.author?.name || ''} • ${video.timestamp}`,
-                        thumbnail: thumbnailBuffer,
-                        mediaType: 2,
-                        sourceUrl: video.url
-                    }
-                }
+                text: `❌ *Download failed*\nAll sources are currently down. Please try again later.`
             }, { quoted: message });
+
         } catch (err) {
             console.error('Play error:', err.message);
-            const reason = err.response?.status === 429
-                ? 'All APIs are rate limited. Wait a minute and try again.'
-                : err.message?.includes('All download APIs failed')
-                    ? 'All download sources are currently down. Try again later.'
-                    : err.message;
-            await sock.sendMessage(chatId, { text: `❌ *Failed:* ${reason}` }, { quoted: message });
+            await sock.sendMessage(chatId, { text: `❌ *Failed:* ${err.message}` }, { quoted: message });
         }
     }
 };
