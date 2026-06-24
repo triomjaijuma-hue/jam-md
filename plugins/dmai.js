@@ -206,7 +206,7 @@ export async function handleDmAiAll(sock, chatId, message, userMessage, senderId
 export default {
     command: 'aionall',
     aliases: ['aioffall'],
-    category: 'download',
+    category: 'ai',
     description: 'Turn AI auto-reply on/off for all private DM chats',
     usage: '.aionall | .aioffall',
     ownerOnly: true,
