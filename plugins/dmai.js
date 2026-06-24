@@ -51,16 +51,19 @@ function getInstantReply(text) {
     return null;
 }
 
+// If DM_AI_ON=true is set in env, DM AI defaults to ON after every redeploy
+const DEFAULT_ENABLED = process.env.DM_AI_ON === 'true';
+
 async function getDmAiState() {
     try {
         if (HAS_DB) {
             const data = await store.getSetting('global', 'dmAiAll');
-            return { enabled: false, excluded: [], ...(data || {}) };
+            return { enabled: DEFAULT_ENABLED, excluded: [], ...(data || {}) };
         }
-        if (!fs.existsSync(DM_AI_FILE)) return { enabled: false, excluded: [] };
+        if (!fs.existsSync(DM_AI_FILE)) return { enabled: DEFAULT_ENABLED, excluded: [] };
         const data = JSON.parse(fs.readFileSync(DM_AI_FILE, 'utf8'));
-        return { enabled: data.enabled || false, excluded: data.excluded || [] };
-    } catch { return { enabled: false, excluded: [] }; }
+        return { enabled: data.enabled ?? DEFAULT_ENABLED, excluded: data.excluded || [] };
+    } catch { return { enabled: DEFAULT_ENABLED, excluded: [] }; }
 }
 
 async function setDmAiState(data) {
