@@ -98,9 +98,14 @@ export default {
             for (let i = 0; i < Math.min(3, configs.length); i++) {
                 const proto = protocols[i] ? `[${protocols[i].toUpperCase()}]` : '';
                 const tag = tags[i] ? ` ${tags[i]}` : '';
+                // Label first
                 await sock.sendMessage(chatId, {
-                    text: `*${i + 1}.* ${proto}${tag}\n\n${configs[i]}`
+                    text: `*${i + 1}.* ${proto}${tag} ⬇️ copy message below`
                 }, { quoted: message });
+                // Config alone — long-press this message to copy just the vmess/vless/trojan/ss string
+                await sock.sendMessage(chatId, {
+                    text: configs[i]
+                });
             }
 
         } catch (error) {
