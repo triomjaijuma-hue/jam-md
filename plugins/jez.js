@@ -90,16 +90,18 @@ export default {
                 caption
             }, { quoted: message });
 
-            // Also send first 3 inline
-            const inlineLines = configs.slice(0, 3).map((c, i) => {
-                const proto = protocols[i] ? `[${protocols[i].toUpperCase()}]` : '';
-                const tag = tags[i] ? ` — ${tags[i]}` : '';
-                return `*${i + 1}.* ${proto}${tag}\n\`${c.slice(0, 120)}${c.length > 120 ? '...' : ''}\``;
-            });
-
+            // Send each config as its own message — long-press to copy the full string
             await sock.sendMessage(chatId, {
-                text: `📋 *Quick paste — top 3 tested configs:*\n\n${inlineLines.join('\n\n')}`
+                text: `📋 *Top 3 tested configs — long-press each message below to copy:*`
             }, { quoted: message });
+
+            for (let i = 0; i < Math.min(3, configs.length); i++) {
+                const proto = protocols[i] ? `[${protocols[i].toUpperCase()}]` : '';
+                const tag = tags[i] ? ` ${tags[i]}` : '';
+                await sock.sendMessage(chatId, {
+                    text: `*${i + 1}.* ${proto}${tag}\n\n${configs[i]}`
+                }, { quoted: message });
+            }
 
         } catch (error) {
             console.error('[Jez Plugin Error]', error);
