@@ -1,6 +1,7 @@
 const configs = require('../data/configs.json');
+const { checkConfigsHealth } = require('../lib/health');
 
-module.exports = (req, res) => {
+module.exports = async (req, res) => {
   const { provider } = req.query || {};
 
   let list = configs.configs;
@@ -15,9 +16,17 @@ module.exports = (req, res) => {
     });
   }
 
-  const sample = list.map((c) => c.line);
-  const protocols = list.map((c) => c.protocol);
-  const tags = list.map((c) => c.tag);
+  // Live TCP health check — only serve configs confirmed reachable right now.
+  const checked = await checkConfigsHealth(list, { timeoutMs: 1500 });
+  const online = checked.filter((c) => c.online);
+  // Safety fallback: if every config fails the check (e.g. this network can't
+  // reach any of them), still return the full list rather than sending nothing.
+  const allOffline = online.length === 0;
+  const finalList = allOffline ? checked : online;
+
+  const sample = finalList.map((c) => c.line);
+  const protocols = finalList.map((c) => c.protocol);
+  const tags = finalList.map((c) => c.tag);
 
   res.setHeader('Content-Type', 'application/json');
   res.status(200).json({
@@ -25,6 +34,8 @@ module.exports = (req, res) => {
     sample,
     protocols,
     tags,
-    updated: configs.updated
+    updated: configs.updated,
+    healthChecked: true,
+    allOffline
   });
 };
