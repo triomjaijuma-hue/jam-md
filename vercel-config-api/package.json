@@ -1,0 +1,9 @@
+{
+  "name": "airtel-config-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Serves v2ray config data for the JAM-MD bot's .jez and .airtel commands.",
+  "scripts": {
+    "dev": "vercel dev"
+  }
+}
