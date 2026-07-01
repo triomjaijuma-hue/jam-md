@@ -1,21 +1,21 @@
 import fetch from 'node-fetch';
 
 const API_BASE = process.env.AIRTEL_CONFIG_URL
-    ? process.env.AIRTEL_CONFIG_URL.replace('/api/airtel', '')
+    ? process.env.AIRTEL_CONFIG_URL.replace('/api/airtel', '').replace('/api/jez', '')
     : 'https://b7a31e27-b2db-4aba-baf4-c04898f6ecb4-00-125u8d6u0oodo.sisko.replit.dev';
 
 export default {
     command: 'jez',
     aliases: ['v2ray', 'airtelv2', 'configs', 'freeconfigs', 'airtel'],
     category: 'tools',
-    description: 'Get TCP-tested v2ray configs, Uganda/East Africa servers first — for JZ PRO VPN on Airtel UG',
+    description: 'Get TCP-tested v2ray configs, fastest servers first — for JZ PRO VPN on Airtel UG',
     usage: '.jez',
     async handler(sock, message, args, context) {
         const chatId = context.chatId || message.key.remoteJid;
 
         try {
             await sock.sendMessage(chatId, {
-                text: '🔍 *Fetching tested v2ray configs...*\n\n🇺🇬 Uganda & East Africa servers prioritised.\nEvery config is TCP-checked. Please wait up to 30s.'
+                text: '🔍 *Fetching tested v2ray configs...*\n\n🇺🇬 Uganda & East Africa servers prioritised.\nEvery config is TCP-checked and ranked by speed. Please wait up to 30s.'
             }, { quoted: message });
 
             const res = await fetch(`${API_BASE}/api/jez`, {
@@ -40,15 +40,20 @@ export default {
             const configs = data.sample;
             const protocols = data.protocols || [];
             const tags = data.tags || [];
+            const latencies = data.latencyMs || [];
             const updatedAt = data.updated
                 ? new Date(data.updated).toLocaleString('en-UG', { timeZone: 'Africa/Kampala' })
                 : 'Just now';
 
+            const offlineNotice = data.allOffline
+                ? '⚠️ *Note:* none of these passed the live check just now — sending anyway in case it was a fluke.\n\n'
+                : '';
+
             // Build file with comments
             const fileLines = [
                 '# Tested v2ray configs — JAM-MD bot',
-                `# TCP-verified: ${data.count} working servers`,
-                `# Sorted: Uganda/East Africa/Cloudflare first`,
+                `# TCP-verified: ${data.count} working servers, ranked fastest first`,
+                `# Sorted: Uganda/East Africa/Cloudflare, lowest latency first`,
                 `# Updated: ${updatedAt}`,
                 '#',
                 '# HOW TO USE:',
@@ -65,14 +70,19 @@ export default {
 
             const topRegions = tags
                 .slice(0, 3)
-                .map(t => t ? `• ${t}` : null)
+                .map((t, i) => {
+                    if (!t) return null;
+                    const ms = latencies[i];
+                    return ms != null ? `• ${t} (${ms}ms)` : `• ${t}`;
+                })
                 .filter(Boolean)
                 .join('\n') || '• Mixed regions';
 
             const caption =
                 `📡 *Tested v2ray Configs* ✅\n\n` +
+                offlineNotice +
                 `🔬 *TCP-verified:* ${data.count} working servers\n` +
-                `📦 *Sending:* ${configs.length} configs\n` +
+                `📦 *Sending:* ${configs.length} configs (fastest first)\n` +
                 `🏆 *Top servers:*\n${topRegions}\n\n` +
                 `*How to use with JZ PRO VPN:*\n` +
                 `1️⃣ Open the .txt file\n` +
@@ -86,21 +96,22 @@ export default {
             await sock.sendMessage(chatId, {
                 document: fileBuffer,
                 mimetype: 'text/plain',
-                fileName: `airtel_ug_configs_${new Date().toISOString().slice(0, 10)}.txt`,
+                fileName: `jam_md_configs_${new Date().toISOString().slice(0, 10)}.txt`,
                 caption
             }, { quoted: message });
 
             // Send each config as its own message — long-press to copy the full string
             await sock.sendMessage(chatId, {
-                text: `📋 *Top 3 tested configs — long-press each message below to copy:*`
+                text: `📋 *Top 3 fastest configs — long-press each message below to copy:*`
             }, { quoted: message });
 
             for (let i = 0; i < Math.min(3, configs.length); i++) {
                 const proto = protocols[i] ? `[${protocols[i].toUpperCase()}]` : '';
                 const tag = tags[i] ? ` ${tags[i]}` : '';
+                const ms = latencies[i] != null ? ` — ${latencies[i]}ms` : '';
                 // Label first
                 await sock.sendMessage(chatId, {
-                    text: `*${i + 1}.* ${proto}${tag} ⬇️ copy message below`
+                    text: `*${i + 1}.* ${proto}${tag}${ms} ⬇️ copy message below`
                 }, { quoted: message });
                 // Config alone — long-press this message to copy just the vmess/vless/trojan/ss string
                 await sock.sendMessage(chatId, {
