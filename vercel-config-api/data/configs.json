@@ -1,0 +1,20 @@
+{
+  "updated": "2026-07-01T00:00:00.000Z",
+  "configs": [
+    {
+      "protocol": "vmess",
+      "tag": "Uganda - Sample 1",
+      "line": "vmess://REPLACE_WITH_REAL_UGANDA_CONFIG_1"
+    },
+    {
+      "protocol": "vless",
+      "tag": "Uganda - Sample 2",
+      "line": "vless://REPLACE_WITH_REAL_UGANDA_CONFIG_2"
+    },
+    {
+      "protocol": "trojan",
+      "tag": "East Africa - Sample 3",
+      "line": "trojan://REPLACE_WITH_REAL_EAST_AFRICA_CONFIG_3"
+    }
+  ]
+}
