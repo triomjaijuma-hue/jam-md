@@ -1,19 +1,24 @@
-# Airtel Config API (for JAM-MD `.jez` / `.airtel`)
+# Config API (for JAM-MD `.jez`)
 
 Tiny Vercel API that replaces the dead Replit dev URL your bot was calling. Serves:
 
-- `GET /api/jez` → JSON `{ count, sample[], protocols[], tags[], updated, healthChecked, allOffline }` — GCP servers sorted first by default (fastest/most stable). Pass `?provider=gcp` to return GCP-only, or `?provider=other` for non-GCP.
-- `GET /api/airtel` → downloadable `.mludp` config file — **GCP-only by default** (falls back to all configs if none are tagged GCP). Pass `?provider=all` to include every config.
+- `GET /api/jez` → JSON `{ count, sample[], protocols[], tags[], latencyMs[], updated, healthChecked, allOffline }` — every config is live TCP-checked and **ranked fastest first by latency**. GCP servers are prioritized within that ranking by default. Pass `?provider=gcp` to return GCP-only, or `?provider=other` for non-GCP.
 - `GET /api/status` → JSON health report for every config: live TCP reachability check with `{ online, latencyMs, error }` per entry, plus overall `total`/`online`/`offline` counts.
 
-## Live health checks
+> The `.airtel` command/endpoint has been removed — that VPN app required a
+> separate signup step, so the bot now focuses entirely on `.jez`
+> (`.airtel` still works as an *alias* for `.jez` in the bot, so old habits
+> keep working).
 
-Every call to `/api/jez` and `/api/airtel` now does a live TCP connection test
-(≈1.5s timeout per config, all checked in parallel) against each config's
-host/port before responding — **only configs that answer right now are sent
-to the bot.** If every config fails the check (e.g. all servers are actually
-down, or this specific check is blocked on Vercel's network), it falls back
-to sending the full list rather than leaving the bot with nothing.
+## Live health checks & ranking
+
+Every call to `/api/jez` does a live TCP connection test (≈1.5s timeout per
+config, all checked in parallel) against each config's host/port before
+responding — **only configs that answer right now are sent to the bot**, and
+they're sorted by measured latency so the fastest server is always first. If
+every config fails the check (e.g. all servers are actually down, or this
+specific check is blocked on Vercel's network), it falls back to sending the
+full list rather than leaving the bot with nothing.
 
 `/api/status` runs the same check and returns a full report per config
 (`online`, `latencyMs`, `error`) so you can monitor uptime without touching
@@ -22,12 +27,12 @@ hammering the same servers on rapid repeated polls — pass `?refresh=1` to
 force a fresh check.
 
 If you want continuous background monitoring (not just "checked when a user
-runs `.jez`/`.airtel`"), point a free external uptime pinger (e.g.
-cron-job.org, UptimeRobot) at `https://<your-project>.vercel.app/api/status`
-every few minutes. Vercel's own Cron Jobs feature works too, but the Hobby
-(free) plan limits cron frequency to once per day — fine for a periodic log,
-but the request-time checks in `/api/jez` and `/api/airtel` already guarantee
-freshness where it actually matters (what the bot sends users).
+runs `.jez`"), point a free external uptime pinger (e.g. cron-job.org,
+UptimeRobot) at `https://<your-project>.vercel.app/api/status` every few
+minutes. Vercel's own Cron Jobs feature works too, but the Hobby (free) plan
+limits cron frequency to once per day — fine for a periodic log, but the
+request-time checks in `/api/jez` already guarantee freshness where it
+actually matters (what the bot sends users).
 
 ## 1. Add your real configs
 
@@ -62,10 +67,13 @@ Since your bot runs on Railway, set the variable there — not on Vercel:
 2. Go to your service → **Variables** tab.
 3. Add:
    ```
-   AIRTEL_CONFIG_URL=https://<your-project>.vercel.app/api/airtel
+   AIRTEL_CONFIG_URL=https://<your-project>.vercel.app/api/jez
    ```
+   (the variable name is kept as-is for backward compatibility — `plugins/jez.js`
+   strips either `/api/jez` or the old `/api/airtel` suffix to find the base URL,
+   so an already-set value pointing at `/api/airtel` still works fine too.)
 4. Railway automatically redeploys the service when a variable changes. If it
    doesn't, trigger a manual redeploy from the Deployments tab.
 
-Both `jez.js` and `airtel.js` in the bot derive their base URL from this one
-variable, so you only need to set it once.
+`jez.js` in the bot derives its base URL from this one variable, so you only
+need to set it once.
