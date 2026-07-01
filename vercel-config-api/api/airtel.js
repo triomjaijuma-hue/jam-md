@@ -1,6 +1,7 @@
 const configs = require('../data/configs.json');
+const { checkConfigsHealth } = require('../lib/health');
 
-module.exports = (req, res) => {
+module.exports = async (req, res) => {
   const { provider } = req.query || {};
 
   // Default: GCP-only, since GCP servers are the fastest/most stable for Airtel UG.
@@ -13,9 +14,16 @@ module.exports = (req, res) => {
     list = gcpOnly.length > 0 ? gcpOnly : list;
   }
 
+  // Live TCP health check — only serve configs confirmed reachable right now.
+  const checked = await checkConfigsHealth(list, { timeoutMs: 1500 });
+  const online = checked.filter((c) => c.online);
+  const allOffline = online.length === 0;
+  const finalList = allOffline ? checked : online;
+
   const fileLines = [
-    '# Airtel Uganda v2ray Config (GCP-filtered) — JAM-MD bot',
+    '# Airtel Uganda v2ray Config (GCP-filtered, health-checked) — JAM-MD bot',
     `# Updated: ${configs.updated}`,
+    allOffline ? '# NOTE: no configs passed the live health check — sending full list anyway.' : '# All lines below passed a live TCP health check.',
     '#',
     '# HOW TO USE:',
     '# 1. Copy any line below (starting with vmess/vless/trojan/ss)',
@@ -23,7 +31,7 @@ module.exports = (req, res) => {
     '# 3. Tap Custom Setup > V2Ray Tunnel',
     '# 4. Paste the line > SAVE > START',
     '',
-    ...list.map((c) => c.line)
+    ...finalList.map((c) => c.line)
   ];
 
   const fileBuffer = Buffer.from(fileLines.join('\n'), 'utf-8');
