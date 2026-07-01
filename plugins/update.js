@@ -427,12 +427,20 @@ async function updateViaZip(zipOverride) {
 }
 
 // ---------------------------------------------------------------------------
-// Restart — process.exit(1) triggers crash-based auto-restart on every
-// platform: Replit, Pterodactyl, Wispbyte/Bun, Railway, Heroku, PM2.
-// exit(0) = clean stop → most platforms do NOT restart on clean exit.
+// Restart
+// On Railway (restartPolicyType: "ALWAYS" in railway.json) the process is
+// restarted regardless of exit code, so we exit(0) — a clean stop — to avoid
+// the deploy being logged/flagged as a crash. On other hosts (Replit,
+// Pterodactyl, Wispbyte/Bun, Heroku, PM2) that only auto-restart on failure,
+// we still exit(1) to trigger their crash-based auto-restart.
 // ---------------------------------------------------------------------------
+function isRailway() {
+    return Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_SERVICE_ID);
+}
+
 async function restartProcess() {
-    setTimeout(() => process.exit(1), 2500);
+    const code = isRailway() ? 0 : 1;
+    setTimeout(() => process.exit(code), 2500);
 }
 
 // ---------------------------------------------------------------------------
@@ -446,16 +454,20 @@ export default {
     usage: '.update',
     ownerOnly: true,
     async handler(sock, message, args, context) {
-        const { chatId } = context;
-
-        await sock.sendMessage(chatId, {
-            text: '🔄 *JAM-MD Update*\n\nConnecting to GitHub… please wait.'
-        }, { quoted: message });
+        const chatId = context?.chatId || message?.key?.remoteJid;
+        if (!chatId) {
+            console.error('[update] No chatId available — aborting update to avoid crashing.');
+            return;
+        }
 
         let summary = '';
         let strategy = '';
 
         try {
+            await sock.sendMessage(chatId, {
+                text: '🔄 *JAM-MD Update*\n\nConnecting to GitHub… please wait.'
+            }, { quoted: message });
+
             // ── Strategy 1: GitHub API incremental (best — CPU friendly, no ZIP) ──
             try {
                 const progressMsg = await sock.sendMessage(chatId, {
