@@ -22,11 +22,20 @@ module.exports = async (req, res) => {
   // Safety fallback: if every config fails the check (e.g. this network can't
   // reach any of them), still return the full list rather than sending nothing.
   const allOffline = online.length === 0;
-  const finalList = allOffline ? checked : online;
+  const ranked = allOffline ? checked : online;
+
+  // Best configs first: lowest latency wins (fastest/most responsive server).
+  const finalList = [...ranked].sort((a, b) => {
+    if (a.latencyMs == null && b.latencyMs == null) return 0;
+    if (a.latencyMs == null) return 1;
+    if (b.latencyMs == null) return -1;
+    return a.latencyMs - b.latencyMs;
+  });
 
   const sample = finalList.map((c) => c.line);
   const protocols = finalList.map((c) => c.protocol);
   const tags = finalList.map((c) => c.tag);
+  const latencyMs = finalList.map((c) => c.latencyMs);
 
   res.setHeader('Content-Type', 'application/json');
   res.status(200).json({
@@ -34,6 +43,7 @@ module.exports = async (req, res) => {
     sample,
     protocols,
     tags,
+    latencyMs,
     updated: configs.updated,
     healthChecked: true,
     allOffline
