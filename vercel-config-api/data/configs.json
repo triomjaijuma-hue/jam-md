@@ -3,18 +3,27 @@
   "configs": [
     {
       "protocol": "vmess",
-      "tag": "Uganda - Sample 1",
-      "line": "vmess://REPLACE_WITH_REAL_UGANDA_CONFIG_1"
+      "tag": "Uganda - GCP - Sample 1",
+      "provider": "gcp",
+      "line": "vmess://REPLACE_WITH_REAL_UGANDA_GCP_CONFIG_1"
     },
     {
       "protocol": "vless",
-      "tag": "Uganda - Sample 2",
-      "line": "vless://REPLACE_WITH_REAL_UGANDA_CONFIG_2"
+      "tag": "Uganda - GCP - Sample 2",
+      "provider": "gcp",
+      "line": "vless://REPLACE_WITH_REAL_UGANDA_GCP_CONFIG_2"
     },
     {
       "protocol": "trojan",
-      "tag": "East Africa - Sample 3",
-      "line": "trojan://REPLACE_WITH_REAL_EAST_AFRICA_CONFIG_3"
+      "tag": "East Africa - GCP - Sample 3",
+      "provider": "gcp",
+      "line": "trojan://REPLACE_WITH_REAL_EAST_AFRICA_GCP_CONFIG_3"
+    },
+    {
+      "protocol": "vmess",
+      "tag": "East Africa - Other - Sample 4",
+      "provider": "other",
+      "line": "vmess://REPLACE_WITH_REAL_OTHER_CONFIG_4"
     }
   ]
 }
