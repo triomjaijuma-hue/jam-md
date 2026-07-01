@@ -2,14 +2,16 @@
 
 Tiny Vercel API that replaces the dead Replit dev URL your bot was calling. Serves:
 
-- `GET /api/jez` → JSON `{ count, sample[], protocols[], tags[], updated }`
-- `GET /api/airtel` → downloadable `.mludp` config file
+- `GET /api/jez` → JSON `{ count, sample[], protocols[], tags[], updated }` — GCP servers sorted first by default (fastest/most stable). Pass `?provider=gcp` to return GCP-only, or `?provider=other` for non-GCP.
+- `GET /api/airtel` → downloadable `.mludp` config file — **GCP-only by default** (falls back to all configs if none are tagged GCP). Pass `?provider=all` to include every config.
 
 ## 1. Add your real configs
 
 Edit `data/configs.json` and replace the placeholder `line` values with real
-`vmess://`, `vless://`, `trojan://`, or `ss://` config strings. Add as many
-entries as you want — both endpoints read from this same file.
+`vmess://`, `vless://`, `trojan://`, or `ss://` config strings. Each entry has
+a `provider` field — set it to `"gcp"` for Google Cloud–hosted servers (these
+are prioritized/filtered for speed and stability) or `"other"` for everything
+else. Add as many entries as you want — both endpoints read from this same file.
 
 ## 2. Deploy to Vercel
 
@@ -28,13 +30,18 @@ vercel --prod
 ```
 Follow the prompts; it prints your live `.vercel.app` URL at the end.
 
-## 3. Point your bot at it
+## 3. Point your bot at it (Railway)
 
-In your `jam-md` bot's environment variables, set:
+Since your bot runs on Railway, set the variable there — not on Vercel:
 
-```
-AIRTEL_CONFIG_URL=https://<your-project>.vercel.app/api/airtel
-```
+1. Open your bot's project on https://railway.app.
+2. Go to your service → **Variables** tab.
+3. Add:
+   ```
+   AIRTEL_CONFIG_URL=https://<your-project>.vercel.app/api/airtel
+   ```
+4. Railway automatically redeploys the service when a variable changes. If it
+   doesn't, trigger a manual redeploy from the Deployments tab.
 
 Both `jez.js` and `airtel.js` in the bot derive their base URL from this one
-variable, so you only need to set it once. Restart the bot after setting it.
+variable, so you only need to set it once.
